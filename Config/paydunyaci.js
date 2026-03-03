@@ -10,7 +10,7 @@ const PAYDUNYA_CONFIG = {
   TOKEN: process.env.PAYDUNYA_TOKEN_CI,
   MODE: process.env.PAYDUNYA_MODE_CI,
   
-  // URLs selon le mode (corrigées)
+  // URLs selon le mode (corrigées)fd
   BASE_URL: process.env.PAYDUNYA_MODE === 'live' 
     ? 'https://app.paydunya.com/api/v1' 
     : 'https://app.paydunya.com/sandbox-api/v1',
