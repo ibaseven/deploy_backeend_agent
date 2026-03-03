@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   backend:
-    image: ibaseveni985/backend:staging
+    image: ibaseveni985/backendactionnaire2:staging
     env_file:
       - .env
     networks:
@@ -13,12 +13,12 @@ services:
         - "traefik.enable=true"
         - "traefik.docker.network=traefik-public"
         - "traefik.http.services.backend-staging.loadbalancer.server.port=5000"
-        - "traefik.http.routers.backend-staging-secure.rule=Host(`api-staging.actionuniversalfab.com`)"
+        - "traefik.http.routers.backend-staging-secure.rule=Host(`api.test.diokoclient.com`)"
         - "traefik.http.routers.backend-staging-secure.entrypoints=websecure"
         - "traefik.http.routers.backend-staging-secure.tls=true"
         - "traefik.http.routers.backend-staging-secure.tls.certresolver=leresolver"
         - "traefik.http.routers.backend-staging-secure.service=backend-staging"
-        - "traefik.http.routers.backend-staging-http.rule=Host(`api-staging.actionuniversalfab.com`)"
+        - "traefik.http.routers.backend-staging-http.rule=Host(`api.test.diokoclient.com`)"
         - "traefik.http.routers.backend-staging-http.entrypoints=web"
         - "traefik.http.routers.backend-staging-http.middlewares=redirect-to-https"
         - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
