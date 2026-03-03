@@ -1,0 +1,105 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set environment variables based on branch
+        id: vars
+        run: |
+          if [ "${GITHUB_REF##*/}" == "main" ]; then
+            echo "ENV=production" >> $GITHUB_ENV
+            echo "TAG=latest" >> $GITHUB_ENV
+            echo "COMPOSE_FILE=backend-production.yml" >> $GITHUB_ENV
+            echo "REMOTE_PATH=/srv/backend/main" >> $GITHUB_ENV
+          else
+            echo "ENV=staging" >> $GITHUB_ENV
+            echo "TAG=staging" >> $GITHUB_ENV
+            echo "COMPOSE_FILE=backend-staging.yml" >> $GITHUB_ENV
+            echo "REMOTE_PATH=/srv/backend/staging" >> $GITHUB_ENV
+          fi
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push Docker Image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/backendactionnaire2:${{ env.TAG }} .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/backendactionnaire2:${{ env.TAG }}
+
+      - name: Copy docker-compose file to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          port: ${{ secrets.SERVER_PORT }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "${{ env.COMPOSE_FILE }}"
+          target: "${{ env.REMOTE_PATH }}"
+          strip_components: 0
+
+      - name: Create or update .env file on server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          port: ${{ secrets.SERVER_PORT }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            mkdir -p ${{ env.REMOTE_PATH }}
+            
+            # Vérifier si le fichier .env existe déjà
+            if [ -f "${{ env.REMOTE_PATH }}/.env" ]; then
+              echo "✅ .env file already exists, skipping creation"
+            else
+              echo "📝 Creating .env file..."
+              cat <<EOF > ${{ env.REMOTE_PATH }}/.env
+            NODE_ENV=${{ env.ENV }}
+            PORT=5000
+            MONGO_URI=${{ secrets.MONGO_URI }}
+            MAIN_ADMIN_ID=${{ secrets.MAIN_ADMIN_ID }}
+            JWT_KEY=${{ secrets.JWT_KEY }}
+            BACKEND_URL=${{ secrets.BACKEND_URL }}
+            PAYDUNYA_MASTER_KEY=${{ secrets.PAYDUNYA_MASTER_KEY }}
+            PAYDUNYA_PUBLIC_KEY=${{ secrets.PAYDUNYA_PUBLIC_KEY }}
+            PAYDUNYA_TOKEN=${{ secrets.PAYDUNYA_TOKEN }}
+            PAYDUNYA_MODE=${{ secrets.PAYDUNYA_MODE }}
+            ULTRAMSG_INSTANCE_ID=${{ secrets.ULTRAMSG_INSTANCE_ID }}
+            ULTRAMSG_TOKEN=${{ secrets.ULTRAMSG_TOKEN }}
+            DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION=${{ secrets.AWS_REGION }}
+            AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}
+            LAM_ACCOUNT_ID=${{ secrets.LAM_ACCOUNT_ID }}
+            LAM_PASSWORD=${{ secrets.LAM_PASSWORD }}
+            EOF
+              echo "✅ .env file created"
+            fi
+
+      - name: Deploy Backend on Server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          port: ${{ secrets.SERVER_PORT }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+            cd ${{ env.REMOTE_PATH }}
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/backendactionnaire2:${{ env.TAG }}
+            docker stack deploy -c ${{ env.COMPOSE_FILE }} backend-${{ env.ENV }} --with-registry-auth
+            docker image prune -f
