@@ -6,6 +6,20 @@ const { getDividendBalance, getDividendWithdrawalHistory, initiateDividendWithdr
 const authenticateToken = require('../Middlewares/authenticateToken');
 const { uploadImg } = require('../Middlewares/awsUpload');
 const { addProjection, getAllProjections, projectFuture } = require('../Controller/projectionController');
+const {
+  createProject,
+  updateProject,
+  deleteProject,
+  getAllProjectsAdmin,
+  getProjectByIdAdmin,
+  getProjectsStats,
+  updateInvestmentStatus,
+  getOpenProjects,
+  getProjectById,
+  investInProject,
+  checkInvestmentPaymentStatus,
+  getMyInvestments
+} = require('../Controller/projectController');
 
 // ✅ IMPORT CORRIGÉ - Utilisez le bon nom de fichier avec majuscule
 const {
@@ -248,5 +262,29 @@ router.get('/authorized-sellers', authenticateToken.authenticate, authenticateTo
 router.post('/authorized-sellers', authenticateToken.authenticate, authenticateToken.requireAdmin, addAuthorizedSeller);
 router.delete('/authorized-sellers/:telephone', authenticateToken.authenticate, authenticateToken.requireAdmin, removeAuthorizedSeller);
 router.put('/authorized-sellers/:telephone/toggle', authenticateToken.authenticate, authenticateToken.requireAdmin, toggleAuthorizedSeller);
+
+// ===============================================
+// 📁 ROUTES PROJETS D'INVESTISSEMENT
+// ===============================================
+
+// Admin - Gestion des projets
+const uploadProjectFields = [
+  { name: 'logo', maxCount: 1 },
+  { name: 'rapport', maxCount: 1 }
+];
+router.post('/admin/projets', authenticateToken.authenticate, authenticateToken.requireAdmin, uploadImg(uploadProjectFields), createProject);
+router.put('/admin/projets/:projectId', authenticateToken.authenticate, authenticateToken.requireAdmin, uploadImg(uploadProjectFields), updateProject);
+router.delete('/admin/projets/:projectId', authenticateToken.authenticate, authenticateToken.requireAdmin, deleteProject);
+router.get('/admin/projets', authenticateToken.authenticate, authenticateToken.requireAdmin, getAllProjectsAdmin);
+router.get('/admin/projets/statistiques', authenticateToken.authenticate, authenticateToken.requireAdmin, getProjectsStats);
+router.get('/admin/projets/:projectId', authenticateToken.authenticate, authenticateToken.requireAdmin, getProjectByIdAdmin);
+router.put('/admin/investissements/:investmentId/statut', authenticateToken.authenticate, authenticateToken.requireAdmin, updateInvestmentStatus);
+
+// Actionnaire - Consultation & investissement
+router.get('/projets', authenticateToken.authenticate, getOpenProjects);
+router.get('/projets/:projectId', authenticateToken.authenticate, getProjectById);
+router.post('/projets/:projectId/investir', authenticateToken.authenticate, investInProject);
+router.get('/investissements/:investmentId/statut', authenticateToken.authenticate, checkInvestmentPaymentStatus);
+router.get('/mes-investissements', authenticateToken.authenticate, getMyInvestments);
 
 module.exports = router;

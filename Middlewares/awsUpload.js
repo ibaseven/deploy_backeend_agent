@@ -77,15 +77,26 @@ const uploadImg = (fields) => {
 
               // Upload des fichiers présents vers AWS S3
               if (uploadedFiles.length > 0) {
+                  // Vérifier que les credentials AWS sont bien configurés
+                  const awsConfigured = process.env.AWS_ACCESS_KEY_ID &&
+                      process.env.AWS_SECRET_ACCESS_KEY &&
+                      process.env.AWS_BUCKET_NAME &&
+                      process.env.AWS_REGION;
+
+                  if (!awsConfigured) {
+                      console.warn("⚠️ AWS S3 non configuré — les fichiers ne seront pas uploadés.");
+                      // Continuer sans upload
+                      return next();
+                  }
+
                   try {
                       const uploadedUrls = await uploadFiles(uploadedFiles);
                       // Stocker les URLs des fichiers uploadés dans req pour y accéder dans le contrôleur
                       req.uploadedFiles = uploadedUrls;
                   } catch (uploadError) {
                       console.error("Erreur lors de l'upload vers S3:", uploadError);
-                      return res.status(500).json({ 
-                          error: req.t ? req.t('upload.errorUploadingToS3') : "Erreur lors de l'upload vers S3" 
-                      });
+                      // Ne pas bloquer la requête — continuer sans les fichiers
+                      console.warn("⚠️ Upload S3 échoué — le projet sera créé sans fichiers.");
                   }
               }
 

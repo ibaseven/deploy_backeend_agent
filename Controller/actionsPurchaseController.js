@@ -6,11 +6,12 @@ const qs = require("qs");
 const AWS = require("aws-sdk");
 const User = require("../Models/User");
 const InstallmentPurchase = require("../Models/InstallmentPurchase");
+const ProjectInvestment = require("../Models/ProjectInvestment");
+const { handleProjectInvestmentCallback } = require("../Controller/projectController");
 const {
   calculateActionPrice,
-  // calculateDividende, // ✅ SUPPRIMÉ
-  createDiokolinkInvoice,        // ✅ DIOKOLINK
-  verifyDiokolinkTransaction,    // ✅ DIOKOLINK
+  createPaydunyaInvoiceSN,   // ✅ PAYDUNYA Sénégal
+  verifyPaydunyaTransactionSN, // ✅ PAYDUNYA Sénégal
   processPaymentCompletion,
   processPaymentFailure,
   calculateSalesStats,
@@ -25,7 +26,7 @@ const {
 // Import correct des fonctions WhatsApp depuis UserController
 const userController = require("../Controller/UserControler");
 const { generateContractPDF } = require("../Services/contractGenerator");
-const { createDiokolinkInvoiceCI } = require("../Services/actionpurchaci");
+const { createPaydunyaInvoiceCI } = require("../Services/actionpurchaci");
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
@@ -249,36 +250,25 @@ const initiateActionsPurchase = async (req, res) => {
    let paydunyaResponse;
 
 if (user.telephone.startsWith("+225")) {
-  // Côte d'Ivoire
-  paydunyaResponse = await createDiokolinkInvoiceCI(
+  // ✅ Côte d'Ivoire — PayDunya CI
+  paydunyaResponse = await createPaydunyaInvoiceCI(
     userId,
     nombre_actions,
     montantTotal
   );
-
   if (!paydunyaResponse.success) {
     throw new Error("Erreur lors de la création de la facture PayDunya CI");
   }
-
-} else if (user.telephone.startsWith("+221")) {
-  // Sénégal
-  paydunyaResponse = await createDiokolinkInvoice(
+} else {
+  // ✅ Sénégal (+221) et autres pays — PayDunya SN
+  paydunyaResponse = await createPaydunyaInvoiceSN(
     userId,
     nombre_actions,
     montantTotal
   );
-
   if (!paydunyaResponse.success) {
     throw new Error("Erreur lors de la création de la facture PayDunya SN");
   }
-
-} else {
-  // Autres pays
-  paydunyaResponse = await createDiokolinkInvoice(
-    userId,
-    nombre_actions,
-    montantTotal
-  );
 }
 
     
@@ -363,9 +353,9 @@ const ensureUserHasPartnerField = async (userId) => {
 
     // Vérifier si le champ existe
     if (!user.hasOwnProperty("telephonePartenaire")) {
-      console.log(
+     /*  console.log(
         `🔧 Ajout automatique du champ telephonePartenaire pour l'utilisateur ${userId}`
-      );
+      ); */
 
       // Ajouter le champ avec une mise à jour atomique
       await User.findByIdAndUpdate(
@@ -658,8 +648,8 @@ const checkPaymentStatus = async (req, res) => {
       });
     }
 
-    // Vérifier le statut avec PayDunya
-    const paymentStatus = await verifyDiokolinkTransaction(
+    // Vérifier le statut avec PayDunya SN
+    const paymentStatus = await verifyPaydunyaTransactionSN(
       actionsPurchase.paydunya_transaction_id || actionsPurchase.invoice_token
     );
 
@@ -1231,7 +1221,7 @@ const handlePaydunyaCallback = async (req, res) => {
       }
     }
 
-    // ✅ Support DiokoLink ET Paydunya - Validation flexible
+    // ✅ Support PayDunya - Validation flexible
     const transactionToken = data.payment_link_token || data.invoice?.token || data.metadata?.invoice_token;
     const newTransactionId = data.transaction_id; // ID après paiement (DiokoLink)
 
@@ -1273,6 +1263,21 @@ const handlePaydunyaCallback = async (req, res) => {
       return await handleInstallmentPaymentCallback(req, res, data, actionsPurchase);
     }
 
+    // ✅ Investissement dans un projet
+    if (transactionType === 'project_investment' || !actionsPurchase) {
+      const projectInvestment = await ProjectInvestment.findOne({
+        $or: [
+          { diokolink_transaction_id: transactionToken },
+          { diokolink_transaction_id: newTransactionId }
+        ]
+      });
+
+      if (projectInvestment) {
+        console.log('📁 Routing vers handleProjectInvestmentCallback');
+        return await handleProjectInvestmentCallback(req, res, data, projectInvestment);
+      }
+    }
+
     // Achat d'actions classique
     if (!actionsPurchase) {
       console.error("❌ Transaction non trouvée:", transactionToken);
@@ -1295,8 +1300,8 @@ const handlePaydunyaCallback = async (req, res) => {
         .json({ success: false, message: "Utilisateur non trouvé" });
     }
 
-    // Vérifier le statut réel via PayDunya
-    const paymentStatus = await verifyDiokolinkTransaction(transactionToken);
+    // Vérifier le statut réel via PayDunya SN
+    const paymentStatus = await verifyPaydunyaTransactionSN(transactionToken);
 
     let result, whatsappMessage;
 
