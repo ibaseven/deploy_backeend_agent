@@ -26,7 +26,7 @@ const {
 // Import correct des fonctions WhatsApp depuis UserController
 const userController = require("../Controller/UserControler");
 const { generateContractPDF } = require("../Services/contractGenerator");
-const { createPaydunyaInvoiceCI } = require("../Services/actionpurchaci");
+// const { createPaydunyaInvoiceCI } = require("../Services/actionpurchaci"); // Non utilisé
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
@@ -249,26 +249,14 @@ const initiateActionsPurchase = async (req, res) => {
     // console.log("💰 Montant total:", montantTotal);
    let paydunyaResponse;
 
-if (user.telephone.startsWith("+225")) {
-  // ✅ Côte d'Ivoire — PayDunya CI
-  paydunyaResponse = await createPaydunyaInvoiceCI(
-    userId,
-    nombre_actions,
-    montantTotal
-  );
-  if (!paydunyaResponse.success) {
-    throw new Error("Erreur lors de la création de la facture PayDunya CI");
-  }
-} else {
-  // ✅ Sénégal (+221) et autres pays — PayDunya SN
-  paydunyaResponse = await createPaydunyaInvoiceSN(
-    userId,
-    nombre_actions,
-    montantTotal
-  );
-  if (!paydunyaResponse.success) {
-    throw new Error("Erreur lors de la création de la facture PayDunya SN");
-  }
+// ✅ PayDunya SN pour tous les pays
+paydunyaResponse = await createPaydunyaInvoiceSN(
+  userId,
+  nombre_actions,
+  montantTotal
+);
+if (!paydunyaResponse.success) {
+  throw new Error("Erreur lors de la création de la facture PayDunya");
 }
 
     
