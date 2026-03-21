@@ -1307,7 +1307,7 @@ const handlePaydunyaCallback = async (req, res) => {
       }
 
       // Bonus partenaire
-      await attributeBonusAuPartenaire(actionsPurchase, user);
+     // await attributeBonusAuPartenaire(actionsPurchase, user);
 
       // Finaliser l'achat
       const result = await processPaymentCompletion(
