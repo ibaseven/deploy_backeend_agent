@@ -10,8 +10,10 @@ const ProjectInvestment = require("../Models/ProjectInvestment");
 const { handleProjectInvestmentCallback } = require("../Controller/projectController");
 const {
   calculateActionPrice,
-  createPaydunyaInvoiceSN,   // ✅ PAYDUNYA Sénégal
-  verifyPaydunyaTransactionSN, // ✅ PAYDUNYA Sénégal
+  createDiokolinkInvoice,      // ✅ DIOKOLINK
+  verifyDiokolinkTransaction,  // ✅ DIOKOLINK
+  // createPaydunyaInvoiceSN,   // ❌ PAYDUNYA - DÉSACTIVÉ
+  // verifyPaydunyaTransactionSN, // ❌ PAYDUNYA - DÉSACTIVÉ
   processPaymentCompletion,
   processPaymentFailure,
   calculateSalesStats,
@@ -202,14 +204,16 @@ const initiateActionsPurchase = async (req, res) => {
     // console.log("💰 Montant total:", montantTotal);
    let paydunyaResponse;
 
-// ✅ PayDunya SN pour tous les pays
-paydunyaResponse = await createPaydunyaInvoiceSN(
+// ✅ DiokoLink pour tous les pays
+paydunyaResponse = await createDiokolinkInvoice(
   userId,
   nombre_actions,
   montantTotal
 );
+// ❌ PAYDUNYA - DÉSACTIVÉ
+// paydunyaResponse = await createPaydunyaInvoiceSN(userId, nombre_actions, montantTotal);
 if (!paydunyaResponse.success) {
-  throw new Error("Erreur lors de la création de la facture PayDunya");
+  throw new Error("Erreur lors de la création du lien de paiement DiokoLink");
 }
 
     
@@ -568,8 +572,9 @@ const checkPaymentStatus = async (req, res) => {
       });
     }
 
-    // Vérifier le statut avec PayDunya SN
-    const paymentStatus = await verifyPaydunyaTransactionSN(
+    // Vérifier le statut avec DiokoLink
+    // ❌ PAYDUNYA: const paymentStatus = await verifyPaydunyaTransactionSN(...)
+    const paymentStatus = await verifyDiokolinkTransaction(
       actionsPurchase.paydunya_transaction_id || actionsPurchase.invoice_token
     );
 
@@ -931,10 +936,10 @@ const handleInstallmentPaymentCallback = async (req, res, data, actionsPurchase 
       });
     }
 
-    // Vérifier le statut du paiement via PayDunya
+    // Vérifier le statut du paiement via DiokoLink
     const paymentStatus = await verifyDiokolinkTransaction(transactionToken);
 
-    console.log('📊 Statut paiement PayDunya:', paymentStatus.status);
+    console.log('📊 Statut paiement DiokoLink:', paymentStatus.status);
 
     // ============================
     // ✅ Paiement validé
@@ -1145,8 +1150,8 @@ const handlePaydunyaCallback = async (req, res) => {
 
     ///tette
 
-    console.log('🔍 Transaction ID:', transactionToken);
-    console.log('📦 Métadonnées:', data.custom_data || data.metadata);
+    //console.log('🔍 Transaction ID:', transactionToken);
+    //console.log('📦 Métadonnées:', data.custom_data || data.metadata);
 
     // Chercher la transaction dans la base de données (avant la détermination du type)
     const actionsPurchase = await ActionsPurchase.findOne({
@@ -1211,8 +1216,9 @@ const handlePaydunyaCallback = async (req, res) => {
         .json({ success: false, message: "Utilisateur non trouvé" });
     }
 
-    // Vérifier le statut réel via PayDunya SN
-    const paymentStatus = await verifyPaydunyaTransactionSN(transactionToken);
+    // Vérifier le statut réel via DiokoLink
+    // ❌ PAYDUNYA: const paymentStatus = await verifyPaydunyaTransactionSN(transactionToken);
+    const paymentStatus = await verifyDiokolinkTransaction(transactionToken);
 
     let result, whatsappMessage;
 
