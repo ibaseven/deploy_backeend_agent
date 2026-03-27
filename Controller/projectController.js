@@ -2,6 +2,18 @@ const Project = require('../Models/Project');
 const ProjectInvestment = require('../Models/ProjectInvestment');
 const User = require('../Models/User');
 const { initializePayment, checkPaymentStatus: checkDiokolinkStatus, DIOKOLINK_CONFIG } = require('../Services/diokolinkService');
+const userController = require('../Controller/UserControler');
+
+// Envoi WhatsApp avec gestion d'erreurs silencieuse
+const sendWhatsAppMessageSafe = async (telephone, message) => {
+  try {
+    if (typeof userController.sendWhatsAppMessage === 'function') {
+      await userController.sendWhatsAppMessage(telephone, message);
+    }
+  } catch (error) {
+    console.error('❌ Erreur envoi WhatsApp projet:', error.message);
+  }
+};
 
 // =====================================================
 // 🏗️ ADMIN — GESTION DES PROJETS
@@ -558,6 +570,41 @@ const handleProjectInvestmentCallback = async (req, res, data, investment) => {
       }
 
       await _confirmerInvestissement(investment, paymentStatus.transaction);
+
+      // ✅ Envoi WhatsApp de confirmation à l'investisseur
+      try {
+        const [user, project] = await Promise.all([
+          User.findById(investment.user_id),
+          Project.findById(investment.project_id)
+        ]);
+
+        if (user && project) {
+          await sendWhatsAppMessageSafe(
+            user.telephone,
+            `Félicitations ${user.firstName} ${user.lastName} !
+Votre investissement dans le projet "${project.nom}" a été confirmé avec succès !
+Actions acquises : ${investment.nombre_actions.toLocaleString()}
+Montant investi : ${investment.montant.toLocaleString()} FCFA
+Projet : ${project.nom}
+Merci pour votre confiance !
+Équipe Dioko`
+          );
+
+          // Notification admin
+          await sendWhatsAppMessageSafe(
+            '+221773878232',
+            `Nouvel investissement confirmé - Dioko
+
+Client : ${user.firstName} ${user.lastName}
+Téléphone : ${user.telephone}
+Projet : ${project.nom}
+Actions : ${investment.nombre_actions.toLocaleString()}
+Montant : ${investment.montant.toLocaleString()} FCFA`
+          );
+        }
+      } catch (whatsappError) {
+        console.error('❌ Erreur WhatsApp confirmation investissement:', whatsappError.message);
+      }
 
       return res.status(200).json({
         success: true,
