@@ -114,13 +114,6 @@ const deleteProject = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Projet introuvable' });
     }
 
-    if (!['brouillon', 'annule'].includes(project.statut)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Seuls les projets en brouillon ou annulés peuvent être supprimés'
-      });
-    }
-
     await ProjectInvestment.deleteMany({ project_id: projectId });
     await project.deleteOne();
 
