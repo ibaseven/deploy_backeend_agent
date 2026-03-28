@@ -151,50 +151,50 @@ const initiateActionsPurchase = async (req, res) => {
     }
 
     // // ✅ PARRAINAGE DÉSACTIVÉ - Attribution de bonus partenaire commentée
-    // let telephonePartenaire =
-    //   nouveauTelephonePartenaire || user.telephonePartenaire || null;
-    // let partenaireValide = null;
-    // let isFirstTimeWithPartner = false;
+     let telephonePartenaire =
+      nouveauTelephonePartenaire || user.telephonePartenaire || null;
+     let partenaireValide = null;
+     let isFirstTimeWithPartner = false;
     const ipAddress = req.ip || req.connection.remoteAddress;
     const userAgent = req.headers["user-agent"];
 
-    // if (nouveauTelephonePartenaire) {
-    //   if (!/^\+?[0-9]{8,15}$/.test(nouveauTelephonePartenaire)) {
-    //     return res.status(400).json({
-    //       success: false,
-    //       message: "Le format du numéro de téléphone partenaire est invalide",
-    //     });
-    //   }
-    //   const { isValid, partenaire } = await validatePartner(
-    //     user._id,
-    //     nouveauTelephonePartenaire
-    //   );
-    //   if (!isValid) {
-    //     return res.status(400).json({
-    //       success: false,
-    //       message: "Partenaire invalide ou vous ne pouvez pas être votre propre partenaire",
-    //     });
-    //   }
-    //   partenaireValide = partenaire;
-    //   const hasReferredBefore = await hasUserReferredPartner(user._id, nouveauTelephonePartenaire);
-    //   if (!hasReferredBefore) {
-    //     isFirstTimeWithPartner = true;
-    //   }
-    //   try {
-    //     user.telephonePartenaire = nouveauTelephonePartenaire;
-    //     await user.save();
-    //   } catch (saveError) {
-    //     console.error("⚠️ Erreur sauvegarde utilisateur (non critique):", saveError.message);
-    //   }
-    // } else if (user.telephonePartenaire) {
-    //   const { isValid, partenaire } = await validatePartner(user._id, user.telephonePartenaire);
-    //   if (isValid) {
-    //     partenaireValide = partenaire;
-    //     telephonePartenaire = user.telephonePartenaire;
-    //   } else {
-    //     telephonePartenaire = null;
-    //   }
-    // }
+     if (nouveauTelephonePartenaire) {
+       if (!/^\+?[0-9]{8,15}$/.test(nouveauTelephonePartenaire)) {
+       return res.status(400).json({
+           success: false,
+           message: "Le format du numéro de téléphone partenaire est invalide",
+         });
+       }
+       const { isValid, partenaire } = await validatePartner(
+         user._id,
+         nouveauTelephonePartenaire
+       );
+       if (!isValid) {
+         return res.status(400).json({
+           success: false,
+           message: "Partenaire invalide ou vous ne pouvez pas être votre propre partenaire",
+         });
+       }
+       partenaireValide = partenaire;
+       const hasReferredBefore = await hasUserReferredPartner(user._id, nouveauTelephonePartenaire);
+       if (!hasReferredBefore) {
+         isFirstTimeWithPartner = true;
+       }
+       try {
+         user.telephonePartenaire = nouveauTelephonePartenaire;
+         await user.save();
+       } catch (saveError) {
+         console.error("⚠️ Erreur sauvegarde utilisateur (non critique):", saveError.message);
+       }
+     } else if (user.telephonePartenaire) {
+       const { isValid, partenaire } = await validatePartner(user._id, user.telephonePartenaire);
+       if (isValid) {
+         partenaireValide = partenaire;
+         telephonePartenaire = user.telephonePartenaire;
+       } else {
+         telephonePartenaire = null;
+       }
+     }
 
     // ✅ Calcul du prix et création de la facture
     const pricingInfo = await calculateActionPrice(userId);
@@ -230,15 +230,15 @@ if (!paydunyaResponse.success) {
       montant_total: montantTotal,
       dividende_calculated: 0,
       status: "pending",
-      // telephonePartenaire: telephonePartenaire,   // PARRAINAGE DÉSACTIVÉ
-      // partenaireId: partenaireValide?._id || null, // PARRAINAGE DÉSACTIVÉ
-      // nouveauPartenaire: isFirstTimeWithPartner,   // PARRAINAGE DÉSACTIVÉ
+      telephonePartenaire: telephonePartenaire,   // PARRAINAGE DÉSACTIVÉ
+       partenaireId: partenaireValide?._id || null, // PARRAINAGE DÉSACTIVÉ
+       nouveauPartenaire: isFirstTimeWithPartner,   // PARRAINAGE DÉSACTIVÉ
       metadata: {
         pricing_info: pricingInfo,
         paydunya_response: paydunyaResponse,
         user_agent: userAgent,
         ip_address: ipAddress,
-        // premier_achat_avec_partenaire: isFirstTimeWithPartner, // PARRAINAGE DÉSACTIVÉ
+         premier_achat_avec_partenaire: isFirstTimeWithPartner, // PARRAINAGE DÉSACTIVÉ
         // bonus_info: ..., // PARRAINAGE DÉSACTIVÉ
       },
     });
@@ -1236,7 +1236,7 @@ const handlePaydunyaCallback = async (req, res) => {
       }
 
       // Bonus partenaire
-     // await attributeBonusAuPartenaire(actionsPurchase, user);
+      await attributeBonusAuPartenaire(actionsPurchase, user);
 
       // Finaliser l'achat
       const result = await processPaymentCompletion(
@@ -1393,11 +1393,132 @@ Merci 💙
 // ===============================================
 
 const attributeBonusAuPartenaire = async (actionsPurchase, user) => {
-  // PARRAINAGE DÉSACTIVÉ - cette fonction ne fait plus rien
-  return false;
+try {
+    // ✅ Import des nouvelles fonctions avec modèle OTP
+    const { validatePartner, cleanUserOTPs } = require("../Utils/otp-utils");
 
-  /* CODE DÉSACTIVÉ - Attribution bonus partenaire
-const attributeBonusAuPartenaire_DISABLED = async (actionsPurchase, user) => {
+    // Vérifier si un partenaire est défini
+    if (!actionsPurchase.telephonePartenaire) {
+      ////("ℹ️ Aucun partenaire défini pour cette transaction");
+      return false;
+    }
+
+    // Vérifier si un bonus a déjà été attribué pour cette transaction
+    if (actionsPurchase.bonusPartenaireAttribue) {
+      //("ℹ️ Un bonus a déjà été attribué pour cette transaction");
+      return false;
+    }
+
+    // Valider le partenaire
+    const { isValid, partenaire } = await validatePartner(
+      user._id,
+      actionsPurchase.telephonePartenaire
+    );
+
+    if (!isValid) {
+      //("ℹ️ Partenaire invalide ou utilisateur est le même que le partenaire");
+      return false;
+    }
+
+    // ✅ Calculer et attribuer le bonus (maintenant pour TOUS les achats avec partenaire)
+    const tauxBonus = 0.1; // 10%
+    const bonusMontant = Math.round(actionsPurchase.montant_total * tauxBonus);
+
+    try {
+      // Ajouter le bonus au dividende du partenaire
+      partenaire.dividende = (partenaire.dividende || 0) + bonusMontant;
+      await partenaire.save();
+
+      // ✅ Utiliser la nouvelle méthode du modèle ActionsPurchase
+      await actionsPurchase.markBonusAttribue(bonusMontant, tauxBonus);
+
+      console.log(
+        `💸 Bonus de ${bonusMontant} FCFA ajouté au partenaire (${partenaire.telephone})`
+      );
+    } catch (error) {
+      console.error("❌ Erreur lors de l'attribution du bonus:", error);
+      return false;
+    }
+
+    // ✅ Nettoyer les OTP du partenaire après attribution réussie
+    try {
+      await cleanUserOTPs(partenaire._id);
+      console.log(`🧹 OTP nettoyés pour le partenaire ${partenaire.telephone}`);
+    } catch (cleanError) {
+      console.error(
+        "⚠️ Erreur nettoyage OTP (non critique):",
+        cleanError.message
+      );
+      // Ne pas faire échouer l'attribution pour un problème de nettoyage
+    }
+
+    // ✅ Envoyer un message WhatsApp au partenaire avec les nouvelles infos
+    const bonusMessage = `🎁 BONUS DE PARRAINAGE - Dioko
+
+Bonjour ${partenaire.firstName} ${partenaire.lastName},
+
+Félicitations ! Vous venez de recevoir un bonus de parrainage de ${bonusMontant.toLocaleString()} FCFA 🎉
+
+👤 Filleul : ${user.firstName} ${user.lastName}
+📞 Téléphone : ${user.telephone}
+📈 Montant de l'achat : ${actionsPurchase.montant_total.toLocaleString()} FCFA
+🎯 Taux de bonus : ${tauxBonus * 100}%
+💳 Nouveau solde dividendes : ${partenaire.dividende.toLocaleString()} FCFA
+
+✨ Ce bonus a été automatiquement ajouté à vos dividendes !
+
+Continuez à parrainer de nouveaux actionnaires pour augmenter vos revenus.
+
+Merci pour votre confiance.
+L'équipe Dioko`;
+
+    try {
+      await sendWhatsAppMessageSafe(partenaire.telephone, bonusMessage);
+      //('✅ Message WhatsApp de bonus envoyé au partenaire');
+    } catch (err) {
+      console.error(
+        "❌ Erreur lors de l'envoi du message de bonus:",
+        err.message
+      );
+      // Ne pas faire échouer l'attribution pour un problème de message
+    }
+
+    // ✅ Log détaillé de l'attribution
+    console.log(`💸 Bonus attribué avec succès:`, {
+      partenaire: `${partenaire.firstName} ${partenaire.lastName}`,
+      telephone: partenaire.telephone,
+      montantBonus: bonusMontant,
+      tauxBonus: tauxBonus,
+      montantAchat: actionsPurchase.montant_total,
+      acheteur: `${user.firstName} ${user.lastName}`,
+      nouveauSoldeDividendes: partenaire.dividende,
+      transactionId: actionsPurchase._id,
+    });
+
+    return true;
+  } catch (error) {
+    console.error("❌ Erreur lors de l'attribution du bonus:", error);
+
+    // ✅ En cas d'erreur, essayer de remettre à zéro les flags pour permettre une nouvelle tentative
+    try {
+      actionsPurchase.bonusPartenaireAttribue = false;
+      actionsPurchase.bonusMontant = 0;
+      await actionsPurchase.save();
+      console.log(
+        "🔄 Flags bonus remis à zéro pour permettre une nouvelle tentative"
+      );
+    } catch (resetError) {
+      console.error(
+        "❌ Erreur lors de la remise à zéro des flags:",
+        resetError.message
+      );
+    }
+
+    return false;
+  }
+
+}
+/* const attributeBonusAuPartenaire_DISABLED = async (actionsPurchase, user) => {
   try {
     // ✅ Import des nouvelles fonctions avec modèle OTP
     const { validatePartner, cleanUserOTPs } = require("../Utils/otp-utils");
@@ -1521,8 +1642,7 @@ L'équipe Dioko`;
 
     return false;
   }
-}; */ // FIN PARRAINAGE DÉSACTIVÉ
-};
+};  */
 
 // ✅ MODIFIEZ AUSSI VOTRE MODULE.EXPORTS POUR INCLURE LES NOUVELLES FONCTIONS
 module.exports = {

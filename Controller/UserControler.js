@@ -1960,6 +1960,49 @@ module.exports.getMyActionnaireInfo = async (req, res) => {
     });
   }
 };
+module.exports.getMyParrainageInfo = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.userData?.id;
+    const user = await User.findById(userId).select('firstName lastName telephone telephonePartenaire');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    // Trouver le parrain (la personne qui a parrainé cet utilisateur)
+    let parrain = null;
+    if (user.telephonePartenaire) {
+      const parrainUser = await User.findOne({ telephone: user.telephonePartenaire })
+        .select('firstName lastName telephone');
+      if (parrainUser) {
+        parrain = {
+          nom: `${parrainUser.firstName} ${parrainUser.lastName}`,
+          telephone: parrainUser.telephone
+        };
+      }
+    }
+
+    // Trouver les filleuls (personnes que cet utilisateur a parrainées)
+    const filleuls = await User.find({ telephonePartenaire: user.telephone })
+      .select('firstName lastName telephone')
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      parrain,
+      filleuls: filleuls.map(f => ({
+        nom: `${f.firstName} ${f.lastName}`,
+        telephone: f.telephone
+      })),
+      nombre_filleuls: filleuls.length
+    });
+
+  } catch (error) {
+    console.error('Erreur getMyParrainageInfo:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur', error: error.message });
+  }
+};
+
 module.exports.getUserById = async (req, res) => {
     try {
         const { id } = req.params; // ID de l'utilisateur passé en paramètre de route

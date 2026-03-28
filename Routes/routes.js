@@ -1,5 +1,5 @@
 const express = require('express');
-const { signUP, initiateSignIn, verifyOTPAndSignIn, createAccount, checkAndGetUserByToken, getMyActions, updateUser, getAllActionnaires, toggleActionnaireStatus, getBeneficesEntreprise, getMyActionnaireInfo, resetPassWord, getOtherUsers, getUserById, changePassword, sendPasswordResetOTP, verifyOTPAndResetPassword, resendPasswordResetOTP, deleteUser, deleteMultipleUsers, signForNewActionnaire, verifyOTPAndCreateAccount, resendSignUpOTP, updateOwnProfile } = require('../Controller/UserControler');
+const { signUP, initiateSignIn, verifyOTPAndSignIn, createAccount, checkAndGetUserByToken, getMyActions, updateUser, getAllActionnaires, toggleActionnaireStatus, getBeneficesEntreprise, getMyActionnaireInfo, getMyParrainageInfo, resetPassWord, getOtherUsers, getUserById, changePassword, sendPasswordResetOTP, verifyOTPAndResetPassword, resendPasswordResetOTP, deleteUser, deleteMultipleUsers, signForNewActionnaire, verifyOTPAndCreateAccount, resendSignUpOTP, updateOwnProfile } = require('../Controller/UserControler');
 const { createEntreprise, addNewYearBenefices, downloadRapport, updateAllDividendesFrom2025 } = require('../Controller/entrepriseController');
 const { diagnosePDF, bulkImportFromFile, bulkImportFromJSON, getImportStatus,previewPDF } = require('../Controller/bulkImportController');
 const { getDividendBalance, getDividendWithdrawalHistory, initiateDividendWithdrawal, confirmDividendWithdrawal, getTransactions, initiateDividendWithdrawalAdmin, confirmDividendWithdrawalAdmin } = require('../Controller/DividendController');
@@ -168,6 +168,7 @@ router.post("/entreprises/new-year", authenticateToken.authenticate, authenticat
 router.get("/entreprises/download/:fileName", downloadRapport);
 router.get('/actionnaire/benefices-entreprise', authenticateToken.authenticate, getBeneficesEntreprise);
 router.get('/actionnaire/mes-informations', authenticateToken.authenticate, getMyActionnaireInfo);
+router.get('/actionnaire/parrainage', authenticateToken.authenticate, getMyParrainageInfo);
 
 // ===============================================
 // 👑 ROUTES ADMIN
