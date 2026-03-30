@@ -19,60 +19,20 @@ const TOKEN = process.env.ULTRAMSG_TOKEN;
 // Fonction pour envoyer un message WhatsApp via UltraMsg
 async function sendWhatsAppMessage(phoneNumber, message) {
   try {
-    const accountId = process.env.LAM_ACCOUNT_ID;
-    const password = process.env.LAM_PASSWORD;
-
-    if (!accountId || !password) {
-      throw new Error(
-        "LAM_ACCOUNT_ID et LAM_PASSWORD doivent être configurés dans .env"
-      );
+    if (!INSTANCE_ID || !TOKEN) {
+      throw new Error('ULTRAMSG_INSTANCE_ID et ULTRAMSG_TOKEN doivent être configurés dans .env');
     }
-
     const formattedPhone = formatPhoneNumber(phoneNumber);
-
-    const payload = {
-      accountid: accountId,
-      password: password,
-      sender: "Dioko",
-      ret_id: `dioko_${Date.now()}`,
-      priority: "2",
-      text: message,
-      to: [
-        {
-          ret_id_1: formattedPhone,
-        },
-      ],
-    };
-
+    const data = qs.stringify({ token: TOKEN, to: formattedPhone, body: message });
     const response = await axios.post(
-      "https://lamsms.lafricamobile.com/api",
-      payload,
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
+      `https://api.ultramsg.com/${INSTANCE_ID}/messages/chat`,
+      data,
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
-
     return { success: true, response: response.data };
   } catch (error) {
     if (error.response) {
-      const responseText = error.response.data;
-
-      if (responseText.includes("accountid")) {
-        throw new Error("Account ID manquant ou invalide");
-      } else if (responseText.includes("password")) {
-        throw new Error("Mot de passe invalide");
-      } else if (
-        responseText.includes("balance") ||
-        responseText.includes("credit")
-      ) {
-        throw new Error("Solde insuffisant sur votre compte LAM");
-      } else {
-        throw new Error(
-          `Erreur API LAM SMS (${error.response.status}): ${responseText}`
-        );
-      }
+      throw new Error(`Erreur API UltraMsg (${error.response.status}): ${JSON.stringify(error.response.data)}`);
     }
     throw error;
   }

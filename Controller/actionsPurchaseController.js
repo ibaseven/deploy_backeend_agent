@@ -1037,17 +1037,14 @@ Montant total : ${installmentPurchase.prix_unitaire.toLocaleString()} FCFA
 
           console.log("✅ PDF uploadé sur S3:", pdfUrl.cleanUrl);
 
-          // Envoi WhatsApp avec lien du contrat
-          await sendWhatsAppMessageSafe(
+          // Envoi du PDF comme document WhatsApp via UltraMsg
+          await sendPDFWhatsApp(
             user.telephone,
-            `Achat complété - Dioko Félicitations ${user.firstName} ${user.lastName} ! Votre achat par versements est complètement payé !
-Actions créditées: ${installmentPurchase.nombre_actions_total.toLocaleString()}
-Montant total: ${installmentPurchase.montant_total.toLocaleString()} FCFA
-Nombre de versements: ${installmentPurchase.versements.length}
-Total actions: ${updatedUser.nbre_actions.toLocaleString()}
-Votre contrat officiel :${pdfUrl.cleanUrl} Merci pour votre confiance !Équipe Dioko`
+            pdfUrl.cleanUrl,
+            fileName,
+            `Félicitations ${user.firstName} ${user.lastName} ! Votre achat par versements est complètement payé ! Actions créditées: ${installmentPurchase.nombre_actions_total.toLocaleString()} — Montant total: ${installmentPurchase.montant_total.toLocaleString()} FCFA — Total actions: ${updatedUser.nbre_actions.toLocaleString()} — Merci pour votre confiance ! Équipe Dioko`
           );
-          console.log("✅ Contrat PDF envoyé par WhatsApp");
+          console.log("✅ Contrat PDF envoyé par WhatsApp (UltraMsg document)");
         } catch (pdfError) {
           console.error("❌ Erreur envoi contrat PDF:", pdfError.message);
 
@@ -1266,21 +1263,15 @@ const handlePaydunyaCallback = async (req, res) => {
           }${Date.now()}.pdf`;
           const pdfUrl = await uploadPDFToS3(pdfBuffer, fileName);
 
-          //console.log("✅ PDF uploadé sur S3:", pdfUrl);
-
-          // Envoi WhatsApp
-          await sendWhatsAppMessageSafe(
+          // Envoi du PDF comme document WhatsApp via UltraMsg
+          await sendPDFWhatsApp(
             user.telephone,
-            `Félicitations ${user.firstName} !
-Voici le lien pour télécharger votre contrat d'actions officiel :
- ${pdfUrl.cleanUrl}
-Voici votre contrat d'actions officiel.
- Actions : ${actionsPurchase.nombre_actions.toLocaleString()}
- Montant : ${actionsPurchase.montant_total.toLocaleString()} FCFA
-Merci pour votre confiance `
+            pdfUrl.cleanUrl,
+            fileName,
+            `Félicitations ${user.firstName} ${user.lastName} ! Voici votre contrat d'achat de ${actionsPurchase.nombre_actions.toLocaleString()} actions pour ${actionsPurchase.montant_total.toLocaleString()} FCFA. Merci pour votre confiance — Équipe Dioko`
           );
 
-          console.log("✅ Contrat PDF envoyé par WhatsApp");
+          console.log("✅ Contrat PDF envoyé par WhatsApp (UltraMsg document)");
         } catch (pdfError) {
           console.error("❌ Erreur envoi contrat PDF:", pdfError.message);
         }

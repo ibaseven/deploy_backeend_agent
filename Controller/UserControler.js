@@ -17,50 +17,31 @@ const TOKEN = process.env.ULTRAMSG_TOKEN;
 // Fonction pour envoyer un message WhatsApp via UltraMsg
 async function sendWhatsAppMessage(phoneNumber, message) {
   try {
-    const accountId = process.env.LAM_ACCOUNT_ID;
-    const password = process.env.LAM_PASSWORD;
-    
-    if (!accountId || !password) {
-      throw new Error('LAM_ACCOUNT_ID et LAM_PASSWORD doivent être configurés dans .env');
+    if (!INSTANCE_ID || !TOKEN) {
+      throw new Error('ULTRAMSG_INSTANCE_ID et ULTRAMSG_TOKEN doivent être configurés dans .env');
     }
 
     const formattedPhone = formatPhoneNumber(phoneNumber);
-    
-    const payload = {
-      accountid: accountId,
-      password: password,
-      sender: "Dioko",
-      ret_id: `dioko_${Date.now()}`,
-      priority: "2",
-      text: message,
-      to: [
-        {
-          ret_id_1: formattedPhone
-        }
-      ]
-    };
-    
-    const response = await axios.post('https://lamsms.lafricamobile.com/api', payload, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
+
+    const data = qs.stringify({
+      token: TOKEN,
+      to: formattedPhone,
+      body: message,
     });
-    
+
+    const config = {
+      method: 'post',
+      url: `https://api.ultramsg.com/${INSTANCE_ID}/messages/chat`,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      data: data,
+    };
+
+    const response = await axios(config);
     return { success: true, response: response.data };
-    
+
   } catch (error) {
     if (error.response) {
-      const responseText = error.response.data;
-      
-      if (responseText.includes('accountid')) {
-        throw new Error('Account ID manquant ou invalide');
-      } else if (responseText.includes('password')) {
-        throw new Error('Mot de passe invalide');
-      } else if (responseText.includes('balance') || responseText.includes('credit')) {
-        throw new Error('Solde insuffisant sur votre compte LAM');
-      } else {
-        throw new Error(`Erreur API LAM SMS (${error.response.status}): ${responseText}`);
-      }
+      throw new Error(`Erreur API UltraMsg (${error.response.status}): ${JSON.stringify(error.response.data)}`);
     }
     throw error;
   }
@@ -2384,6 +2365,61 @@ if (cni !== undefined) updateData.cni = cni;
     });
   }
 };
+module.exports.setMyParrain = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.userData?.id;
+    const { telephonePartenaire } = req.body;
+
+    if (!telephonePartenaire) {
+      return res.status(400).json({ success: false, message: 'Le numéro de téléphone du parrain est requis' });
+    }
+
+    if (!/^\+?[0-9]{8,15}$/.test(telephonePartenaire)) {
+      return res.status(400).json({ success: false, message: 'Format du numéro de téléphone invalide' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    // Vérifier que ce n'est pas son propre numéro
+    const cleanedInput = telephonePartenaire.replace(/\D/g, '');
+    const cleanedOwn = (user.telephone || '').replace(/\D/g, '');
+    if (cleanedInput === cleanedOwn) {
+      return res.status(400).json({ success: false, message: 'Vous ne pouvez pas vous parrainer vous-même' });
+    }
+
+    // Vérifier si la personne existe
+    const parrain = await User.findOne({ telephone: telephonePartenaire }).select('firstName lastName telephone status isBlocked');
+
+    if (!parrain) {
+      return res.status(404).json({ success: false, message: 'Aucun compte trouvé avec ce numéro de téléphone' });
+    }
+
+    if (parrain.isBlocked || parrain.status === 'blocked' || parrain.status === 'suspended') {
+      return res.status(400).json({ success: false, message: 'Ce compte ne peut pas être utilisé comme parrain' });
+    }
+
+    // Sauvegarder le parrain
+    user.telephonePartenaire = telephonePartenaire;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Parrain assigné avec succès',
+      parrain: {
+        nom: `${parrain.firstName} ${parrain.lastName}`,
+        telephone: parrain.telephone
+      }
+    });
+
+  } catch (error) {
+    console.error('Erreur setMyParrain:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur', error: error.message });
+  }
+};
+
 module.exports.sendWhatsAppMessage = sendWhatsAppMessage;
 module.exports.formatPhoneNumber = formatPhoneNumber;
 module.exports.sendWhatsAppDocument = sendWhatsAppDocument;
