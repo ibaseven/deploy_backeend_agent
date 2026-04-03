@@ -10,10 +10,8 @@ const ProjectInvestment = require("../Models/ProjectInvestment");
 const { handleProjectInvestmentCallback } = require("../Controller/projectController");
 const {
   calculateActionPrice,
-  createDiokolinkInvoice,      // ✅ DIOKOLINK
-  verifyDiokolinkTransaction,  // ✅ DIOKOLINK
-  // createPaydunyaInvoiceSN,   // ❌ PAYDUNYA - DÉSACTIVÉ
-  // verifyPaydunyaTransactionSN, // ❌ PAYDUNYA - DÉSACTIVÉ
+  createPaydunyaInvoiceSN,     // ✅ PAYDUNYA
+  verifyPaydunyaTransactionSN, // ✅ PAYDUNYA
   processPaymentCompletion,
   processPaymentFailure,
   calculateSalesStats,
@@ -204,16 +202,10 @@ const initiateActionsPurchase = async (req, res) => {
     // console.log("💰 Montant total:", montantTotal);
    let paydunyaResponse;
 
-// ✅ DiokoLink pour tous les pays
-paydunyaResponse = await createDiokolinkInvoice(
-  userId,
-  nombre_actions,
-  montantTotal
-);
-// ❌ PAYDUNYA - DÉSACTIVÉ
-// paydunyaResponse = await createPaydunyaInvoiceSN(userId, nombre_actions, montantTotal);
+// ✅ PAYDUNYA
+paydunyaResponse = await createPaydunyaInvoiceSN(userId, nombre_actions, montantTotal);
 if (!paydunyaResponse.success) {
-  throw new Error("Erreur lors de la création du lien de paiement DiokoLink");
+  throw new Error("Erreur lors de la création de la facture PayDunya");
 }
 
     
@@ -572,9 +564,8 @@ const checkPaymentStatus = async (req, res) => {
       });
     }
 
-    // Vérifier le statut avec DiokoLink
-    // ❌ PAYDUNYA: const paymentStatus = await verifyPaydunyaTransactionSN(...)
-    const paymentStatus = await verifyDiokolinkTransaction(
+    // ✅ Vérifier le statut avec PayDunya
+    const paymentStatus = await verifyPaydunyaTransactionSN(
       actionsPurchase.paydunya_transaction_id || actionsPurchase.invoice_token
     );
 
@@ -936,10 +927,10 @@ const handleInstallmentPaymentCallback = async (req, res, data, actionsPurchase 
       });
     }
 
-    // Vérifier le statut du paiement via DiokoLink
-    const paymentStatus = await verifyDiokolinkTransaction(transactionToken);
+    // ✅ Vérifier le statut du paiement via PayDunya
+    const paymentStatus = await verifyPaydunyaTransactionSN(transactionToken);
 
-    console.log('📊 Statut paiement DiokoLink:', paymentStatus.status);
+    console.log('📊 Statut paiement PayDunya:', paymentStatus.status);
 
     // ============================
     // ✅ Paiement validé
@@ -1213,9 +1204,8 @@ const handlePaydunyaCallback = async (req, res) => {
         .json({ success: false, message: "Utilisateur non trouvé" });
     }
 
-    // Vérifier le statut réel via DiokoLink
-    // ❌ PAYDUNYA: const paymentStatus = await verifyPaydunyaTransactionSN(transactionToken);
-    const paymentStatus = await verifyDiokolinkTransaction(transactionToken);
+    // ✅ Vérifier le statut réel via PayDunya
+    const paymentStatus = await verifyPaydunyaTransactionSN(transactionToken);
 
     let result, whatsappMessage;
 

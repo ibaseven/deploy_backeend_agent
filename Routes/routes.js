@@ -41,6 +41,7 @@ const { buydividendeswithoseruser, getTransactionsForTest, updateTransactionStat
 const { getAllPrices, getPriceByType, upsertPrice, deletePrice, getAllVIPUsers, addVIPUser, removeVIPUser, checkVIPStatus } = require('../Controller/priceController');
 const { getAllAuthorizedSellers, addAuthorizedSeller, removeAuthorizedSeller, toggleAuthorizedSeller } = require('../Controller/authorizedSellerController');
 const { initiateInstallmentPurchase, addInstallmentPayment, getMyInstallmentPurchases, getMyInstallmentHistory, annulerContratVersement } = require('../Controller/installmentPurchaseController');
+const { requestCryptoWithdrawal, getMyCryptoWithdrawals, getAllCryptoWithdrawals, acceptCryptoWithdrawal, rejectCryptoWithdrawal } = require('../Controller/cryptoWithdrawalController');
 
 
 
@@ -288,5 +289,18 @@ router.get('/projets/:projectId', authenticateToken.authenticate, getProjectById
 router.post('/projets/:projectId/investir', authenticateToken.authenticate, investInProject);
 router.get('/investissements/:investmentId/statut', authenticateToken.authenticate, checkInvestmentPaymentStatus);
 router.get('/mes-investissements', authenticateToken.authenticate, getMyInvestments);
+
+// ===============================================
+// 💎 ROUTES RETRAIT CRYPTO (USDT TRC20)
+// ===============================================
+
+// Actionnaire
+router.post('/crypto/retrait', authenticateToken.authenticate, requestCryptoWithdrawal);
+router.get('/crypto/mes-retraits', authenticateToken.authenticate, getMyCryptoWithdrawals);
+
+// Admin
+router.get('/crypto/admin/retraits', authenticateToken.authenticate, authenticateToken.requireAdmin, getAllCryptoWithdrawals);
+router.put('/crypto/admin/retraits/:id/accepter', authenticateToken.authenticate, authenticateToken.requireAdmin, acceptCryptoWithdrawal);
+router.put('/crypto/admin/retraits/:id/rejeter', authenticateToken.authenticate, authenticateToken.requireAdmin, rejectCryptoWithdrawal);
 
 module.exports = router;

@@ -1,41 +1,38 @@
-// Services/actionsPurchaseService.js - VERSION DIOKOLINK
+// Services/actionsPurchaseService.js - VERSION PAYDUNYA
 const axios = require('axios');
 const ActionsPurchase = require('../Models/ActionsPurchase');
 
-// ✅ DIOKOLINK - ACTIF
-const {
-  initializePayment,
-  checkPaymentStatus: checkDiokolinkStatus
-} = require('./diokolinkService');
+// ✅ PAYDUNYA - ACTIF
+const PAYDUNYA_SN_CONFIG = {
+  masterKey:  process.env.PAYDUNYA_MASTER_KEY,
+  privateKey: process.env.PAYDUNYA_PRIVATE_KEY,
+  publicKey:  process.env.PAYDUNYA_PUBLIC_KEY,
+  token:      process.env.PAYDUNYA_TOKEN,
+  BASE_URL: process.env.PAYDUNYA_MODE === 'live'
+    ? 'https://app.paydunya.com/api/v1'
+    : 'https://app.paydunya.com/sandbox-api/v1',
+  RETURN_URL:   process.env.FRONTEND_URL  || 'https://actionnaire.diokoclient.com',
+  CANCEL_URL:   process.env.FRONTEND_URL  || 'https://actionnaire.diokoclient.com',
+  CALLBACK_URL: process.env.BACKEND_URL   || 'https://api.actionnaire.diokoclient.com',
+  STORE_INFO: {
+    name: 'Dioko',
+    tagline: "Plateforme d'investissement en actions",
+    phone:   process.env.COMPANY_PHONE   || '221775968426',
+    email:   process.env.COMPANY_EMAIL   || 'contact@dioko.com',
+    website_url: process.env.FRONTEND_URL || 'https://actionnaire.diokoclient.com'
+  }
+};
 
-// ❌ PAYDUNYA - DÉSACTIVÉ
-// const PAYDUNYA_SN_CONFIG = {
-//   masterKey:  process.env.PAYDUNYA_MASTER_KEY,
-//   privateKey: process.env.PAYDUNYA_PRIVATE_KEY,
-//   publicKey:  process.env.PAYDUNYA_PUBLIC_KEY,
-//   token:      process.env.PAYDUNYA_TOKEN,
-//   BASE_URL: process.env.PAYDUNYA_MODE === 'live'
-//     ? 'https://app.paydunya.com/api/v1'
-//     : 'https://app.paydunya.com/sandbox-api/v1',
-//   RETURN_URL:   process.env.FRONTEND_URL  || 'https://actionnaire.diokoclient.com',
-//   CANCEL_URL:   process.env.FRONTEND_URL  || 'https://actionnaire.diokoclient.com',
-//   CALLBACK_URL: process.env.BACKEND_URL   || 'https://api.actionnaire.diokoclient.com',
-//   STORE_INFO: {
-//     name: 'Dioko',
-//     tagline: "Plateforme d'investissement en actions",
-//     phone:   process.env.COMPANY_PHONE   || '221775968426',
-//     email:   process.env.COMPANY_EMAIL   || 'contact@dioko.com',
-//     website_url: process.env.FRONTEND_URL || 'https://actionnaire.diokoclient.com'
-//   }
-// };
-//
-// const getPaydunySNHeaders = () => ({
-//   'PAYDUNYA-MASTER-KEY':  PAYDUNYA_SN_CONFIG.masterKey,
-//   'PAYDUNYA-PRIVATE-KEY': PAYDUNYA_SN_CONFIG.privateKey,
-//   'PAYDUNYA-PUBLIC-KEY':  PAYDUNYA_SN_CONFIG.publicKey,
-//   'PAYDUNYA-TOKEN':       PAYDUNYA_SN_CONFIG.token,
-//   'Content-Type': 'application/json'
-// });
+const getPaydunySNHeaders = () => ({
+  'PAYDUNYA-MASTER-KEY':  PAYDUNYA_SN_CONFIG.masterKey,
+  'PAYDUNYA-PRIVATE-KEY': PAYDUNYA_SN_CONFIG.privateKey,
+  'PAYDUNYA-PUBLIC-KEY':  PAYDUNYA_SN_CONFIG.publicKey,
+  'PAYDUNYA-TOKEN':       PAYDUNYA_SN_CONFIG.token,
+  'Content-Type': 'application/json'
+});
+
+// ❌ DIOKOLINK - DÉSACTIVÉ
+// const { initializePayment, checkPaymentStatus: checkDiokolinkStatus } = require('./diokolinkService');
 
 const User = require("../Models/User")
 const Price = require('../Models/Price');
@@ -97,152 +94,81 @@ const calculateActionPrice = async (userId) => {
 
 
 /**
- * ✅ DIOKOLINK: Créer un lien de paiement
+ * ✅ PAYDUNYA: Créer une facture de paiement
  */
-const createDiokolinkInvoice = async (userId, nombreActions, montantTotal, customMetadata = {}) => {
+const createPaydunyaInvoiceSN = async (userId, nombreActions, montantTotal, customMetadata = {}) => {
   try {
     const user = await User.findById(userId);
     if (!user) throw new Error('Utilisateur non trouvé');
 
-    const reference = `ACT-${userId}-${Date.now()}`;
+    const fullUrl = `${PAYDUNYA_SN_CONFIG.BASE_URL}/checkout-invoice/create`;
+    const callbackUrl = `${PAYDUNYA_SN_CONFIG.CALLBACK_URL}/actions/payment/callback`;
 
-    const response = await initializePayment(
-      montantTotal,
-      'link',
-      {
-        name:  `${user.firstName} ${user.lastName}`,
-        email: user.email || '',
-        phone: user.telephone
+    const invoiceData = {
+      invoice: {
+        total_amount: montantTotal,
+        description: `Achat de ${nombreActions} action${nombreActions > 1 ? 's' : ''} Dioko`
       },
-      reference,
-      null,
-      {
+      store: PAYDUNYA_SN_CONFIG.STORE_INFO,
+      actions: {
+        cancel_url:   PAYDUNYA_SN_CONFIG.CANCEL_URL,
+        return_url:   PAYDUNYA_SN_CONFIG.RETURN_URL,
+        callback_url: callbackUrl
+      },
+      custom_data: {
         user_id:                 userId.toString(),
         nombre_actions:          nombreActions,
         type:                    customMetadata.type || 'actions_purchase',
         installment_purchase_id: customMetadata.installment_purchase_id || null,
         telephone_partenaire:    customMetadata.telephone_partenaire || null,
+        user_info: { nom: `${user.firstName} ${user.lastName}`, telephone: user.telephone }
       }
-    );
+    };
 
-    if (response.success) {
+    const response = await axios.post(fullUrl, invoiceData, {
+      headers: getPaydunySNHeaders(),
+      timeout: 30000
+    });
+
+    if (response.data.response_code === '00') {
       return {
         success:        true,
-        token:          response.transaction_id,
-        response_text:  response.payment_url,
-        transaction_id: response.transaction_id,
-        reference:      reference
+        token:          response.data.token,
+        response_text:  response.data.response_text,
+        transaction_id: response.data.token,
+        reference:      `ACT-${userId}-${Date.now()}`
       };
     } else {
-      throw new Error(response.error || 'Erreur création lien DiokoLink');
+      throw new Error(response.data.response_text || 'Erreur création facture PayDunya SN');
     }
 
   } catch (error) {
-    console.error('❌ Erreur création lien DiokoLink:', error.message);
+    console.error('❌ Erreur création facture PayDunya SN:', error.message);
+    if (error.response) console.error('Response:', error.response.data);
     throw error;
   }
 };
 
 /**
- * ✅ DIOKOLINK: Vérifier le statut d'une transaction
+ * ✅ PAYDUNYA: Vérifier le statut d'une transaction
  */
-const verifyDiokolinkTransaction = async (transactionId) => {
+const verifyPaydunyaTransactionSN = async (transactionId) => {
   try {
-    const response = await checkDiokolinkStatus(transactionId);
+    const fullUrl = `${PAYDUNYA_SN_CONFIG.BASE_URL}/checkout-invoice/confirm/${transactionId}`;
+    const response = await axios.get(fullUrl, {
+      headers: getPaydunySNHeaders(),
+      timeout: 15000
+    });
 
-    if (!response.success) {
-      return {
-        response_code: 'XX',
-        status:        'failed',
-        response_text: response.error || 'Erreur vérification DiokoLink',
-        customer:      {}
-      };
-    }
-
-    // ✅ Mapping des statuts DiokoLink → statuts internes
-    // DiokoLink utilise 'success' là où PayDunya utilisait 'completed'
-    const STATUS_MAP = {
-      'success':   'completed',
-      'completed': 'completed',
-      'pending':   'pending',
-      'processing':'pending',
-      'failed':    'failed',
-      'cancelled': 'cancelled',
-      'canceled':  'cancelled',
-    };
-    const mappedStatus = STATUS_MAP[response.status] || response.status;
-
-    console.log(`📊 DiokoLink status: '${response.status}' → mapped: '${mappedStatus}'`);
-
-    // Adapter le format DiokoLink → format compatible avec le reste du code
-    return {
-      response_code:  mappedStatus === 'completed' ? '00' : 'XX',
-      status:         mappedStatus,
-      customer: {
-        payment_method: response.transaction?.payment_method || 'unknown'
-      },
-      response_text:  response.transaction?.description || '',
-      diokolink_data: response
-    };
+    console.log(`📊 PayDunya status: '${response.data.status}'`);
+    return response.data;
 
   } catch (error) {
-    console.error('❌ Erreur vérification DiokoLink:', error.message);
+    console.error('❌ Erreur vérification PayDunya SN:', error.message);
+    if (error.response) console.error('Response:', error.response.data);
     throw error;
   }
 };
-
-// ❌ PAYDUNYA SN - DÉSACTIVÉ
-// const createPaydunyaInvoiceSN = async (userId, nombreActions, montantTotal, customMetadata = {}) => {
-//   try {
-//     const user = await User.findById(userId);
-//     if (!user) throw new Error('Utilisateur non trouvé');
-//     const fullUrl = `${PAYDUNYA_SN_CONFIG.BASE_URL}/checkout-invoice/create`;
-//     const callbackUrl = `${PAYDUNYA_SN_CONFIG.CALLBACK_URL}/actions/payment/callback`;
-//     const invoiceData = {
-//       invoice: {
-//         total_amount: montantTotal,
-//         description: `Achat de ${nombreActions} action${nombreActions > 1 ? 's' : ''} Dioko`
-//       },
-//       store: PAYDUNYA_SN_CONFIG.STORE_INFO,
-//       actions: {
-//         cancel_url:   PAYDUNYA_SN_CONFIG.CANCEL_URL,
-//         return_url:   PAYDUNYA_SN_CONFIG.RETURN_URL,
-//         callback_url: callbackUrl
-//       },
-//       custom_data: {
-//         user_id:       userId.toString(),
-//         nombre_actions: nombreActions,
-//         type:          customMetadata.type || 'actions_purchase',
-//         installment_purchase_id: customMetadata.installment_purchase_id || null,
-//         telephone_partenaire:   customMetadata.telephone_partenaire || null,
-//         user_info: { nom: `${user.firstName} ${user.lastName}`, telephone: user.telephone }
-//       }
-//     };
-//     const response = await axios.post(fullUrl, invoiceData, { headers: getPaydunySNHeaders(), timeout: 30000 });
-//     if (response.data.response_code === '00') {
-//       return { success: true, token: response.data.token, response_text: response.data.response_text,
-//                transaction_id: response.data.token, reference: `ACT-${userId}-${Date.now()}` };
-//     } else {
-//       throw new Error(response.data.response_text || 'Erreur création facture PayDunya SN');
-//     }
-//   } catch (error) {
-//     console.error('❌ Erreur création facture PayDunya SN:', error.message);
-//     if (error.response) console.error('Response:', error.response.data);
-//     throw error;
-//   }
-// };
-//
-// const verifyPaydunyaTransactionSN = async (transactionId) => {
-//   try {
-//     const fullUrl = `${PAYDUNYA_SN_CONFIG.BASE_URL}/checkout-invoice/confirm/${transactionId}`;
-//     const response = await axios.get(fullUrl, { headers: getPaydunySNHeaders(), timeout: 15000 });
-//     return response.data;
-//   } catch (error) {
-//     console.error('❌ Erreur vérification PayDunya SN:', error.message);
-//     if (error.response) console.error('Response:', error.response.data);
-//     throw error;
-//   }
-// };
 
 /**
  * ✅ FONCTION CLÉE : Traiter la finalisation du paiement
@@ -453,16 +379,16 @@ const calculateSalesStats = async (periodeJours = null) => {
 
 module.exports = {
   calculateActionPrice,
-  // ✅ DIOKOLINK - fonctions principales
-  createDiokolinkInvoice,
-  verifyDiokolinkTransaction,
+  // ✅ PAYDUNYA - fonctions principales
+  createPaydunyaInvoiceSN,
+  verifyPaydunyaTransactionSN,
   processPaymentCompletion,
   processPaymentFailure,
   calculateSalesStats,
 
-  // Aliases pour compatibilité avec les anciens imports (PayDunya)
-  createPaydunyaInvoiceSN:    createDiokolinkInvoice,
-  verifyPaydunyaTransactionSN: verifyDiokolinkTransaction,
-  createPaydunyaInvoice:      createDiokolinkInvoice,
-  verifyPaydunyaTransaction:  verifyDiokolinkTransaction,
+  // Aliases pour compatibilité avec les anciens imports (DiokoLink)
+  createDiokolinkInvoice:      createPaydunyaInvoiceSN,
+  verifyDiokolinkTransaction:  verifyPaydunyaTransactionSN,
+  createPaydunyaInvoice:       createPaydunyaInvoiceSN,
+  verifyPaydunyaTransaction:   verifyPaydunyaTransactionSN,
 };
