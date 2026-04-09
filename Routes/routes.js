@@ -42,6 +42,7 @@ const { getAllPrices, getPriceByType, upsertPrice, deletePrice, getAllVIPUsers, 
 const { getAllAuthorizedSellers, addAuthorizedSeller, removeAuthorizedSeller, toggleAuthorizedSeller } = require('../Controller/authorizedSellerController');
 const { initiateInstallmentPurchase, addInstallmentPayment, getMyInstallmentPurchases, getMyInstallmentHistory, annulerContratVersement } = require('../Controller/installmentPurchaseController');
 const { requestCryptoWithdrawal, getMyCryptoWithdrawals, getAllCryptoWithdrawals, acceptCryptoWithdrawal, rejectCryptoWithdrawal } = require('../Controller/cryptoWithdrawalController');
+const { getAvailablePacks, initiatePackPurchaseCFA, handlePackPaydunyaCallback, checkPackPaymentStatus, initiatePackPurchaseCrypto, getMyPackPurchases, getAllPackPurchases, validatePackPurchase, rejectPackPurchase } = require('../Controller/packPurchaseController');
 
 
 
@@ -289,6 +290,20 @@ router.get('/projets/:projectId', authenticateToken.authenticate, getProjectById
 router.post('/projets/:projectId/investir', authenticateToken.authenticate, investInProject);
 router.get('/investissements/:investmentId/statut', authenticateToken.authenticate, checkInvestmentPaymentStatus);
 router.get('/mes-investissements', authenticateToken.authenticate, getMyInvestments);
+
+// ===============================================
+// 📦 ROUTES PACKS D'ACTIONS
+// ===============================================
+
+router.get('/packs', authenticateToken.authenticate, getAvailablePacks);
+router.post('/packs/acheter-cfa', authenticateToken.authenticate, initiatePackPurchaseCFA);
+router.post('/packs/callback', handlePackPaydunyaCallback); // public — PayDunya
+router.get('/packs/transaction/:token/status', authenticateToken.authenticate, checkPackPaymentStatus);
+router.post('/packs/acheter-crypto', authenticateToken.authenticate, initiatePackPurchaseCrypto);
+router.get('/packs/mes-achats', authenticateToken.authenticate, getMyPackPurchases);
+router.get('/packs/admin/achats', authenticateToken.authenticate, authenticateToken.requireAdmin, getAllPackPurchases);
+router.put('/packs/admin/achats/:id/valider', authenticateToken.authenticate, authenticateToken.requireAdmin, validatePackPurchase);
+router.put('/packs/admin/achats/:id/rejeter', authenticateToken.authenticate, authenticateToken.requireAdmin, rejectPackPurchase);
 
 // ===============================================
 // 💎 ROUTES RETRAIT CRYPTO (USDT TRC20)
