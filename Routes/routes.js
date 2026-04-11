@@ -4,7 +4,7 @@ const { createEntreprise, addNewYearBenefices, downloadRapport, updateAllDividen
 const { diagnosePDF, bulkImportFromFile, bulkImportFromJSON, getImportStatus,previewPDF } = require('../Controller/bulkImportController');
 const { getDividendBalance, getDividendWithdrawalHistory, initiateDividendWithdrawal, confirmDividendWithdrawal, getTransactions, initiateDividendWithdrawalAdmin, confirmDividendWithdrawalAdmin } = require('../Controller/DividendController');
 const authenticateToken = require('../Middlewares/authenticateToken');
-const { uploadImg } = require('../Middlewares/awsUpload');
+const { uploadImg, upload } = require('../Middlewares/awsUpload');
 const { addProjection, getAllProjections, projectFuture } = require('../Controller/projectionController');
 const {
   createProject,
@@ -299,7 +299,7 @@ router.get('/packs', authenticateToken.authenticate, getAvailablePacks);
 router.post('/packs/acheter-cfa', authenticateToken.authenticate, initiatePackPurchaseCFA);
 router.post('/packs/callback', handlePackPaydunyaCallback); // public — PayDunya
 router.get('/packs/transaction/:token/status', authenticateToken.authenticate, checkPackPaymentStatus);
-router.post('/packs/acheter-crypto', authenticateToken.authenticate, initiatePackPurchaseCrypto);
+router.post('/packs/acheter-crypto', authenticateToken.authenticate, upload.single('payment_proof'), initiatePackPurchaseCrypto);
 router.get('/packs/mes-achats', authenticateToken.authenticate, getMyPackPurchases);
 router.get('/packs/admin/achats', authenticateToken.authenticate, authenticateToken.requireAdmin, getAllPackPurchases);
 router.put('/packs/admin/achats/:id/valider', authenticateToken.authenticate, authenticateToken.requireAdmin, validatePackPurchase);

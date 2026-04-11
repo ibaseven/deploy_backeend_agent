@@ -29,7 +29,8 @@ const packPurchaseSchema = new mongoose.Schema(
       required: true,
     },
     // Crypto
-    adresse_usdt: { type: String, default: null },
+    adresse_usdt:       { type: String, default: null },
+    payment_proof_url:  { type: String, default: null },
     // PayDunya
     paydunya_token: { type: String, default: null },
     status: {

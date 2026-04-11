@@ -24,6 +24,17 @@ async function uploadPDFToS3(pdfBuffer, fileName) {
   return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
 }
 
+async function uploadProofToS3(fileBuffer, originalName, mimeType) {
+  const s3Key = `preuves-paiement/${Date.now()}_${originalName}`;
+  await s3.putObject({
+    Bucket: process.env.AWS_BUCKET_NAME,
+    Key: s3Key,
+    Body: fileBuffer,
+    ContentType: mimeType || 'image/jpeg',
+  }).promise();
+  return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+}
+
 // ─── WHATSAPP ─────────────────────────────────────────────────────────────────
 const INSTANCE_ID = process.env.ULTRAMSG_INSTANCE_ID;
 const TOKEN       = process.env.ULTRAMSG_TOKEN;
@@ -302,18 +313,18 @@ module.exports.checkPackPaymentStatus = async (req, res) => {
 };
 
 /**
- * POST /packs/acheter-crypto  — demande achat crypto
+ * POST /packs/acheter-crypto  — demande achat crypto (avec preuve de paiement en photo)
  */
 module.exports.initiatePackPurchaseCrypto = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const { pack_nom, adresse_usdt } = req.body;
+    const { pack_nom } = req.body;
 
     const pack = PACKS_CONFIG.find(p => p.nom === pack_nom);
     if (!pack) return res.status(400).json({ success: false, message: 'Pack invalide.' });
 
-    if (!adresse_usdt || adresse_usdt.trim().length < 10) {
-      return res.status(400).json({ success: false, message: 'Adresse USDT TRC20 invalide.' });
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Veuillez joindre une photo de preuve de paiement.' });
     }
 
     const user = await User.findById(userId);
@@ -323,23 +334,29 @@ module.exports.initiatePackPurchaseCrypto = async (req, res) => {
     }
 
     // Vérifier qu'il n'a pas déjà une demande en attente pour ce pack
-    const existing = await PackPurchase.findOne({ user_id: userId, pack_nom: pack.nom, payment_method: 'crypto', status: 'pending' });
-    if (existing) {
-      return res.status(400).json({ success: false, message: `Vous avez déjà une demande en attente pour le Pack ${pack.nom}.` });
+    
+
+    // Upload de la preuve de paiement sur S3
+    let proofUrl = null;
+    try {
+      proofUrl = await uploadProofToS3(req.file.buffer, req.file.originalname, req.file.mimetype);
+    } catch (uploadErr) {
+      console.error('❌ Upload preuve S3:', uploadErr.message);
+      return res.status(500).json({ success: false, message: 'Erreur lors de l\'upload de la preuve. Réessayez.' });
     }
 
     const packPurchase = await PackPurchase.create({
-      user_id:        userId,
-      pack_nom:       pack.nom,
-      nbre_actions:   pack.nbre_actions,
-      montant_fcfa:   pack.montant_fcfa,
-      montant_usd:    pack.montant_usd,
-      payment_method: 'crypto',
-      adresse_usdt:   adresse_usdt.trim(),
+      user_id:           userId,
+      pack_nom:          pack.nom,
+      nbre_actions:      pack.nbre_actions,
+      montant_fcfa:      pack.montant_fcfa,
+      montant_usd:       pack.montant_usd,
+      payment_method:    'crypto',
+      payment_proof_url: proofUrl,
     });
 
     // Notifier l'admin
-    const msg = `🛒 Nouvelle demande achat Pack ${pack.nom}\n👤 ${user.firstName} ${user.lastName} (${user.telephone})\n💰 ${pack.montant_usd}$ (${pack.montant_fcfa.toLocaleString('fr-FR')} FCFA)\n📊 ${pack.nbre_actions} actions\n📬 ${adresse_usdt.trim()}`;
+    const msg = `🛒 Nouvelle demande achat Pack ${pack.nom}\n👤 ${user.firstName} ${user.lastName} (${user.telephone})\n💰 ${pack.montant_usd}$ USDT (${pack.montant_fcfa.toLocaleString('fr-FR')} FCFA)\n📊 ${pack.nbre_actions} actions\n📎 Preuve: ${proofUrl}`;
     sendWhatsApp(ADMIN_PHONE, msg);
 
     return res.status(201).json({
