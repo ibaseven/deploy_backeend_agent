@@ -308,7 +308,8 @@ exports.purchaseActionsWithDividends = async (req, res) => {
   const pdfBuffer = await generateContractPDF(purchaseData,user);
 
   const fileName = `ContratActions_${transaction._id}_${Date.now()}.pdf`;
-  const pdfUrl = await uploadPDFToS3(pdfBuffer, fileName);
+  const pdfResult = await uploadPDFToS3(pdfBuffer, fileName);
+  const pdfUrl = pdfResult.cleanUrl || pdfResult;
 
   console.log("✅ PDF uploadé sur S3:", pdfUrl);
 
