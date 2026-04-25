@@ -9,6 +9,8 @@ const connectDB = require("./Config/db");
 const path = require('path'); // ← Ajoutez cette ligne
 
 const app = express();
+// ✅ Nécessaire pour récupérer la vraie IP derrière Traefik (ou tout reverse proxy)
+app.set('trust proxy', 1);
 connectDB();
 
 app.use(cors({

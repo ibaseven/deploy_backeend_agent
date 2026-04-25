@@ -24,7 +24,7 @@ const actionsPurchaseSchema = new Schema({
     type: Boolean,
     default: false
   },
-  // Indique si un bonus a été attribué
+  // Indique si un bonus a été attribué (niveau 1 — rétrocompat)
   bonusPartenaireAttribue: {
     type: Boolean,
     default: false
@@ -34,6 +34,16 @@ const actionsPurchaseSchema = new Schema({
     default: 0,
     min: 0
   },
+  // Bonus multi-niveaux (niveau 1, 2, 3 …)
+  bonusMultiNiveaux: [
+    {
+      niveau:    { type: Number },                                   // 1, 2, 3 …
+      telephone: { type: String },                                   // téléphone du parrain
+      userId:    { type: Schema.Types.ObjectId, ref: 'User' },      // _id du parrain
+      montant:   { type: Number },                                   // FCFA versés
+      taux:      { type: Number },                                   // 0.10, 0.05, 0.025 …
+    }
+  ],
   // Nouveau champ pour l'OTP
   otpVerified: {
     type: Boolean,
@@ -107,6 +117,15 @@ const actionsPurchaseSchema = new Schema({
   payment_date: {
     type: Date,
     default: null
+  },
+  // Achat crypto (preuve + note admin)
+  crypto_proof_url: {
+    type: String,
+    default: null,
+  },
+  admin_note: {
+    type: String,
+    default: '',
   },
   
   // Détails PayDunya complets

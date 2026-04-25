@@ -74,6 +74,17 @@ const userSchema = new Schema(
         message: "Format de téléphone partenaire invalide",
       },
     },
+    // Tableau de tous les parrains (plusieurs partenaires possibles)
+    telephonePartenaires: {
+      type: [String],
+      default: [],
+    },
+    referral_code: {
+      type: String,
+      unique: true,
+      sparse: true,
+      default: null,
+    },
     dividende: {
       type: Number,
       min: 0,

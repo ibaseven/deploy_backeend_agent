@@ -1373,131 +1373,189 @@ Merci 💙
 // ✅ PARRAINAGE DÉSACTIVÉ - Fonction d'attribution des bonus commentée
 // ===============================================
 
-const attributeBonusAuPartenaire = async (actionsPurchase, user) => {
-try {
-    // ✅ Import des nouvelles fonctions avec modèle OTP
-    const { validatePartner, cleanUserOTPs } = require("../Utils/otp-utils");
+// ─── Taux par niveau (chaque niveau = moitié du précédent) ──────────────────
+const TAUX_PARRAINAGE_NIVEAUX = [0.10, 0.05, 0.025];
+//  Niveau :                        1     2     3
+//  Sur 100 000 FCFA :          10 000 5 000 2 500
 
-    // Vérifier si un partenaire est défini
-    if (!actionsPurchase.telephonePartenaire) {
-      ////("ℹ️ Aucun partenaire défini pour cette transaction");
-      return false;
-    }
+const attributeBonusAuPartenaire = async (actionsPurchase, user) => {
+  try {
+    const { cleanUserOTPs } = require("../Utils/otp-utils");
 
     // Vérifier si un bonus a déjà été attribué pour cette transaction
     if (actionsPurchase.bonusPartenaireAttribue) {
-      //("ℹ️ Un bonus a déjà été attribué pour cette transaction");
       return false;
     }
 
-    // Valider le partenaire
-    const { isValid, partenaire } = await validatePartner(
-      user._id,
-      actionsPurchase.telephonePartenaire
-    );
-
-    if (!isValid) {
-      //("ℹ️ Partenaire invalide ou utilisateur est le même que le partenaire");
-      return false;
+    // ── Collecter TOUS les parrains de niveau 1 (ancienne + nouvelle logique) ──
+    // On déduplique : telephonePartenaire (ancien champ singulier) + telephonePartenaires (nouveau tableau)
+    const niveau1Set = new Set();
+    if (actionsPurchase.telephonePartenaire) {
+      niveau1Set.add(actionsPurchase.telephonePartenaire);
+    }
+    // Récupérer le user complet pour avoir telephonePartenaires à jour
+    const userFull = await User.findById(user._id)
+      .select('telephone telephonePartenaire telephonePartenaires');
+    if (userFull?.telephonePartenaires?.length > 0) {
+      userFull.telephonePartenaires.forEach(t => { if (t) niveau1Set.add(t); });
+    }
+    if (userFull?.telephonePartenaire) {
+      niveau1Set.add(userFull.telephonePartenaire);
     }
 
-    // ✅ Calculer et attribuer le bonus (maintenant pour TOUS les achats avec partenaire)
-    const tauxBonus = 0.1; // 10%
-    const bonusMontant = Math.round(actionsPurchase.montant_total * tauxBonus);
+    if (niveau1Set.size === 0) return false;
 
-    try {
-      // Ajouter le bonus au dividende du partenaire
-      partenaire.dividende = (partenaire.dividende || 0) + bonusMontant;
-      await partenaire.save();
+    // ── Anti-cycle global ─────────────────────────────────────────────────────
+    const visitedTelephones = new Set([user.telephone]);
+    const bonusMultiNiveaux = [];
 
-      // ✅ Utiliser la nouvelle méthode du modèle ActionsPurchase
-      await actionsPurchase.markBonusAttribue(bonusMontant, tauxBonus);
+    // ═══════════════════════════════════════════════════════════════════════════
+    // NIVEAU 1 : TOUS les parrains directs reçoivent chacun 10%
+    // (un user peut avoir plusieurs parrains)
+    // ═══════════════════════════════════════════════════════════════════════════
+    const taux1       = TAUX_PARRAINAGE_NIVEAUX[0]; // 10%
+    const montant1    = Math.round(actionsPurchase.montant_total * taux1);
+    let   level1Data  = null; // pour le markBonusAttribue (rétrocompat → premier parrain)
 
-      console.log(
-        `💸 Bonus de ${bonusMontant} FCFA ajouté au partenaire (${partenaire.telephone})`
-      );
-    } catch (error) {
-      console.error("❌ Erreur lors de l'attribution du bonus:", error);
-      return false;
-    }
+    for (const tel of niveau1Set) {
+      if (visitedTelephones.has(tel)) continue;
+      visitedTelephones.add(tel);
 
-    // ✅ Nettoyer les OTP du partenaire après attribution réussie
-    try {
-      await cleanUserOTPs(partenaire._id);
-      console.log(`🧹 OTP nettoyés pour le partenaire ${partenaire.telephone}`);
-    } catch (cleanError) {
-      console.error(
-        "⚠️ Erreur nettoyage OTP (non critique):",
-        cleanError.message
-      );
-      // Ne pas faire échouer l'attribution pour un problème de nettoyage
-    }
+      const parrain = await User.findOne({ telephone: tel })
+        .select('_id firstName lastName telephone dividende telephonePartenaire telephonePartenaires isBlocked status');
 
-    // ✅ Envoyer un message WhatsApp au partenaire avec les nouvelles infos
-    const bonusMessage = `🎁 BONUS DE PARRAINAGE - Dioko
+      if (!parrain)                                                     continue;
+      if (parrain.isBlocked)                                            continue;
+      if (parrain.status === 'blocked' || parrain.status === 'suspended') continue;
+      if (parrain._id.toString() === user._id.toString())              continue;
+      if (montant1 < 1)                                                 continue;
 
-Bonjour ${partenaire.firstName} ${partenaire.lastName},
+      // Créditer
+      parrain.dividende = (parrain.dividende || 0) + montant1;
+      await parrain.save();
 
-Félicitations ! Vous venez de recevoir un bonus de parrainage de ${bonusMontant.toLocaleString()} FCFA 🎉
+      console.log(`💸 [Niveau 1] ${montant1.toLocaleString()} FCFA (${taux1 * 100}%) → ${parrain.telephone} (${parrain.firstName} ${parrain.lastName})`);
 
-👤 Filleul : ${user.firstName} ${user.lastName}
+      bonusMultiNiveaux.push({ niveau: 1, telephone: parrain.telephone, userId: parrain._id, montant: montant1, taux: taux1 });
+      if (!level1Data) level1Data = { parrain, montant: montant1, taux: taux1 };
+
+      // WhatsApp
+      const bonusMessage =
+`🎁 BONUS DE PARRAINAGE 🥇 Niveau 1 (filleul direct) - Dioko
+
+Bonjour ${parrain.firstName} ${parrain.lastName},
+
+Vous venez de recevoir un bonus de parrainage *🥇 Niveau 1 (filleul direct)* de *${montant1.toLocaleString()} FCFA* 🎉
+
+👤 Acheteur : ${user.firstName} ${user.lastName}
 📞 Téléphone : ${user.telephone}
 📈 Montant de l'achat : ${actionsPurchase.montant_total.toLocaleString()} FCFA
-🎯 Taux de bonus : ${tauxBonus * 100}%
-💳 Nouveau solde dividendes : ${partenaire.dividende.toLocaleString()} FCFA
+🎯 Taux niveau 1 : ${taux1 * 100}%
+💳 Nouveau solde dividendes : ${parrain.dividende.toLocaleString()} FCFA
 
 ✨ Ce bonus a été automatiquement ajouté à vos dividendes !
-
-Continuez à parrainer de nouveaux actionnaires pour augmenter vos revenus.
 
 Merci pour votre confiance.
 L'équipe Dioko`;
 
-    try {
-      await sendWhatsAppMessageSafe(partenaire.telephone, bonusMessage);
-      //('✅ Message WhatsApp de bonus envoyé au partenaire');
-    } catch (err) {
-      console.error(
-        "❌ Erreur lors de l'envoi du message de bonus:",
-        err.message
-      );
-      // Ne pas faire échouer l'attribution pour un problème de message
+      try { await sendWhatsAppMessageSafe(parrain.telephone, bonusMessage); }
+      catch (err) { console.error(`⚠️ WhatsApp niveau 1 non envoyé :`, err.message); }
+
+      try { await cleanUserOTPs(parrain._id); } catch {}
     }
 
-    // ✅ Log détaillé de l'attribution
-    console.log(`💸 Bonus attribué avec succès:`, {
-      partenaire: `${partenaire.firstName} ${partenaire.lastName}`,
-      telephone: partenaire.telephone,
-      montantBonus: bonusMontant,
-      tauxBonus: tauxBonus,
-      montantAchat: actionsPurchase.montant_total,
-      acheteur: `${user.firstName} ${user.lastName}`,
-      nouveauSoldeDividendes: partenaire.dividende,
-      transactionId: actionsPurchase._id,
-    });
+    if (!level1Data) return false; // aucun parrain valide trouvé
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // NIVEAUX 2 → 5 : remonter la chaîne depuis le parrain principal (niveau 1)
+    // À chaque étage : telephonePartenaire (champ singulier ancien) OU
+    //                  telephonePartenaires[0] (nouveau tableau, 1er élément)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Démarrer depuis le parrain principal (telephonePartenaire de la transaction,
+    // ou le premier parrain valide trouvé à niveau 1)
+    const primaryLevel1Phone = actionsPurchase.telephonePartenaire
+      || level1Data.parrain.telephone;
+
+    const primaryLevel1 = await User.findOne({ telephone: primaryLevel1Phone })
+      .select('telephonePartenaire telephonePartenaires');
+
+    let currentTelephone = primaryLevel1?.telephonePartenaire
+      || primaryLevel1?.telephonePartenaires?.[0]
+      || null;
+
+    for (let niveau = 2; niveau <= TAUX_PARRAINAGE_NIVEAUX.length; niveau++) {
+      if (!currentTelephone) break;
+      if (visitedTelephones.has(currentTelephone)) break; // cycle détecté
+      visitedTelephones.add(currentTelephone);
+
+      const parrain = await User.findOne({ telephone: currentTelephone })
+        .select('_id firstName lastName telephone dividende telephonePartenaire telephonePartenaires isBlocked status');
+
+      if (!parrain)                                                        break;
+      if (parrain.isBlocked)                                               break;
+      if (parrain.status === 'blocked' || parrain.status === 'suspended')  break;
+      if (parrain._id.toString() === user._id.toString())                 break;
+
+      const taux    = TAUX_PARRAINAGE_NIVEAUX[niveau - 1];
+      const montant = Math.round(actionsPurchase.montant_total * taux);
+      if (montant < 1) break;
+
+      // Créditer
+      parrain.dividende = (parrain.dividende || 0) + montant;
+      await parrain.save();
+
+      console.log(`💸 [Niveau ${niveau}] ${montant.toLocaleString()} FCFA (${taux * 100}%) → ${parrain.telephone} (${parrain.firstName} ${parrain.lastName})`);
+
+      bonusMultiNiveaux.push({ niveau, telephone: parrain.telephone, userId: parrain._id, montant, taux });
+
+      // WhatsApp
+      const niveauLabel = niveau === 2 ? '🥈 Niveau 2 (filleul de filleul)' : `🏅 Niveau ${niveau}`;
+      const bonusMessage =
+`💫 BONUS DE PARRAINAGE ${niveauLabel} - Dioko
+
+Bonjour ${parrain.firstName} ${parrain.lastName},
+
+Vous venez de recevoir un bonus de parrainage *${niveauLabel}* de *${montant.toLocaleString()} FCFA* 🎉
+
+👤 Acheteur : ${user.firstName} ${user.lastName}
+📞 Téléphone : ${user.telephone}
+📈 Montant de l'achat : ${actionsPurchase.montant_total.toLocaleString()} FCFA
+🎯 Taux niveau ${niveau} : ${taux * 100}%
+💳 Nouveau solde dividendes : ${parrain.dividende.toLocaleString()} FCFA
+
+✨ Ce bonus a été automatiquement ajouté à vos dividendes !
+
+Merci pour votre confiance.
+L'équipe Dioko`;
+
+      try { await sendWhatsAppMessageSafe(parrain.telephone, bonusMessage); }
+      catch (err) { console.error(`⚠️ WhatsApp niveau ${niveau} non envoyé :`, err.message); }
+
+      // Remonter la chaîne : priorité à telephonePartenaire, sinon telephonePartenaires[0]
+      currentTelephone = parrain.telephonePartenaire
+        || parrain.telephonePartenaires?.[0]
+        || null;
+    }
+
+    // ── Marquer le bonus sur la transaction (rétrocompat niveau 1) ────────────
+    await actionsPurchase.markBonusAttribue(level1Data.montant, level1Data.taux);
+    actionsPurchase.bonusMultiNiveaux = bonusMultiNiveaux;
+    await actionsPurchase.save();
+
+    const totalDistribue = bonusMultiNiveaux.reduce((s, d) => s + d.montant, 0);
+    console.log(`✅ Bonus multi-niveaux attribués : ${bonusMultiNiveaux.length} distribution(s) — total ${totalDistribue.toLocaleString()} FCFA distribués`);
     return true;
-  } catch (error) {
-    console.error("❌ Erreur lors de l'attribution du bonus:", error);
 
-    // ✅ En cas d'erreur, essayer de remettre à zéro les flags pour permettre une nouvelle tentative
+  } catch (error) {
+    console.error("❌ Erreur lors de l'attribution du bonus multi-niveaux:", error);
     try {
       actionsPurchase.bonusPartenaireAttribue = false;
       actionsPurchase.bonusMontant = 0;
       await actionsPurchase.save();
-      console.log(
-        "🔄 Flags bonus remis à zéro pour permettre une nouvelle tentative"
-      );
-    } catch (resetError) {
-      console.error(
-        "❌ Erreur lors de la remise à zéro des flags:",
-        resetError.message
-      );
-    }
-
+    } catch {}
     return false;
   }
-
 }
 /* const attributeBonusAuPartenaire_DISABLED = async (actionsPurchase, user) => {
   try {
@@ -1625,6 +1683,220 @@ L'équipe Dioko`;
   }
 };  */
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 💰 ACHAT D'ACTIONS AVEC CRYPTO (preuve photo → validation admin)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /actions/acheter-crypto
+ * Actionnaire soumet une demande avec capture d'écran
+ */
+const initiateActionsPurchaseCrypto = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.userData?.id;
+    if (!userId) return res.status(401).json({ success: false, message: 'Non authentifié.' });
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable.' });
+    if (user.isBlocked || user.status !== 'active')
+      return res.status(403).json({ success: false, message: 'Compte bloqué ou inactif.' });
+
+    if (!req.file)
+      return res.status(400).json({ success: false, message: "Veuillez joindre une capture d'écran de paiement." });
+
+    const { nombre_actions, telephonePartenaire: reqParrain } = req.body;
+    const nbreActions = parseFloat(nombre_actions);
+    if (!nbreActions || nbreActions <= 0 || nbreActions > 1000000)
+      return res.status(400).json({ success: false, message: 'Nombre d\'actions invalide.' });
+
+    // Prix dynamique
+    const pricingInfo = await calculateActionPrice(userId);
+    const montantTotal = Math.round(pricingInfo.prix_unitaire * nbreActions);
+
+    // Upload preuve S3
+    let proofUrl = null;
+    try {
+      const s3Key = `preuves-paiement-actions/${Date.now()}_${req.file.originalname.replace(/\s/g, '_')}`;
+      await s3.putObject({
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: s3Key,
+        Body: req.file.buffer,
+        ContentType: req.file.mimetype || 'image/jpeg',
+      }).promise();
+      proofUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+    } catch (uploadErr) {
+      console.error('❌ Upload S3 preuve actions crypto:', uploadErr.message);
+      return res.status(500).json({ success: false, message: "Erreur lors de l'upload de la preuve." });
+    }
+
+    // Parrain : priorité au body, sinon celui enregistré
+    const telephonePartenaireFinal = reqParrain || user.telephonePartenaire || null;
+
+    // Token unique (pas de PayDunya)
+    const cryptoToken = `CRYPTO_${Date.now()}_${userId}`;
+
+    const actionsPurchase = new ActionsPurchase({
+      user_id:                 userId,
+      paydunya_transaction_id: cryptoToken,
+      invoice_token:           cryptoToken,
+      nombre_actions:          nbreActions,
+      prix_unitaire:           pricingInfo.prix_unitaire,
+      montant_total:           montantTotal,
+      dividende_calculated:    0,
+      status:                  'pending',
+      payment_method:          'crypto',
+      telephonePartenaire:     telephonePartenaireFinal,
+      crypto_proof_url:        proofUrl,
+    });
+    await actionsPurchase.save();
+
+    // WhatsApp admin
+    const montantUSD = (nbreActions * 2).toFixed(2);
+    const adminMsg =
+`₿ Nouvelle demande achat actions CRYPTO
+
+👤 ${user.firstName} ${user.lastName} (${user.telephone})
+📊 ${nbreActions} actions
+💰 ~${montantUSD} USDT (${montantTotal.toLocaleString()} FCFA)
+📎 Preuve : ${proofUrl}
+
+Validez sur /dashboard/admin/purchaseActionnaire`;
+
+    await sendWhatsAppMessageSafe('+221773878232', adminMsg);
+
+    return res.status(201).json({
+      success:        true,
+      message:        `Demande soumise pour ${nbreActions} actions. L'admin vérifiera votre paiement.`,
+      transaction_id: actionsPurchase._id,
+    });
+  } catch (error) {
+    console.error('❌ initiateActionsPurchaseCrypto:', error.message);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+};
+
+/**
+ * GET /actions/admin/crypto-pending
+ * Admin : liste des achats crypto en attente
+ */
+const getCryptoActionsPending = async (req, res) => {
+  try {
+    const { status = 'pending' } = req.query;
+    const filter = { payment_method: 'crypto' };
+    if (['pending', 'completed', 'rejected'].includes(status)) filter.status = status;
+
+    const achats = await ActionsPurchase.find(filter)
+      .populate('user_id', 'firstName lastName telephone nbre_actions dividende')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({ success: true, achats });
+  } catch (error) {
+    console.error('❌ getCryptoActionsPending:', error.message);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+};
+
+/**
+ * PUT /actions/admin/crypto/:id/valider
+ * Admin valide → crédite actions + bonus parrainage + contrat PDF
+ */
+const validateCryptoActionsPurchase = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { admin_note } = req.body;
+
+    const actionsPurchase = await ActionsPurchase.findById(id);
+    if (!actionsPurchase) return res.status(404).json({ success: false, message: 'Transaction introuvable.' });
+    if (actionsPurchase.status !== 'pending') return res.status(400).json({ success: false, message: 'Transaction déjà traitée.' });
+    if (actionsPurchase.payment_method !== 'crypto') return res.status(400).json({ success: false, message: 'Réservé aux achats crypto.' });
+
+    const user = await User.findById(actionsPurchase.user_id);
+    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable.' });
+
+    // Marquer complété
+    actionsPurchase.status      = 'completed';
+    actionsPurchase.payment_date = new Date();
+    actionsPurchase.processed_at = new Date();
+    actionsPurchase.admin_note  = admin_note || '';
+    actionsPurchase.paydunya_status = 'completed';
+    await actionsPurchase.save();
+
+    // Créditer les actions
+    user.nbre_actions = (user.nbre_actions || 0) + actionsPurchase.nombre_actions;
+    await user.save();
+
+    // Bonus parrainage multi-niveaux
+    await attributeBonusAuPartenaire(actionsPurchase, user);
+
+    // Contrat PDF → WhatsApp
+    try {
+      const updatedUser = await User.findById(user._id);
+      const pdfBuffer  = await generateContractPDF(actionsPurchase, updatedUser);
+      const fileName   = `ContratActionsCrypto_${actionsPurchase._id}_${Date.now()}.pdf`;
+      const pdfResult  = await uploadPDFToS3(pdfBuffer, fileName);
+
+      await sendPDFWhatsApp(
+        user.telephone,
+        pdfResult.cleanUrl,
+        fileName,
+        `Félicitations ${user.firstName} ${user.lastName} ! Voici votre contrat pour l'achat de ${actionsPurchase.nombre_actions.toLocaleString()} actions via crypto — ${actionsPurchase.montant_total.toLocaleString()} FCFA. Merci — Équipe Dioko`
+      );
+    } catch (pdfErr) {
+      console.error('❌ Erreur contrat PDF crypto:', pdfErr.message);
+      try {
+        await sendWhatsAppMessageSafe(
+          user.telephone,
+          `✅ Achat validé — Dioko\n\nFélicitations ${user.firstName} ${user.lastName} !\n\n📊 ${actionsPurchase.nombre_actions.toLocaleString()} actions créditées sur votre compte.\n💰 Montant : ${actionsPurchase.montant_total.toLocaleString()} FCFA\n\nMerci pour votre confiance !\nÉquipe Dioko`
+        );
+      } catch {}
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `${actionsPurchase.nombre_actions} actions créditées. Contrat envoyé par WhatsApp.`,
+    });
+  } catch (error) {
+    console.error('❌ validateCryptoActionsPurchase:', error.message);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+};
+
+/**
+ * PUT /actions/admin/crypto/:id/rejeter
+ * Admin rejette → notifie l'utilisateur
+ */
+const rejectCryptoActionsPurchase = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { admin_note } = req.body;
+
+    const actionsPurchase = await ActionsPurchase.findById(id);
+    if (!actionsPurchase) return res.status(404).json({ success: false, message: 'Transaction introuvable.' });
+    if (actionsPurchase.status !== 'pending') return res.status(400).json({ success: false, message: 'Transaction déjà traitée.' });
+
+    actionsPurchase.status       = 'rejected';
+    actionsPurchase.processed_at = new Date();
+    actionsPurchase.admin_note   = admin_note || '';
+    await actionsPurchase.save();
+
+    try {
+      const user = await User.findById(actionsPurchase.user_id);
+      if (user) {
+        await sendWhatsAppMessageSafe(
+          user.telephone,
+          `❌ Demande rejetée — Dioko\n\nBonjour ${user.firstName} ${user.lastName},\n\nVotre demande d'achat de ${actionsPurchase.nombre_actions} actions via crypto a été rejetée.${admin_note ? `\nRaison : ${admin_note}` : ''}\n\nContactez-nous pour plus d'informations.\nÉquipe Dioko`
+        );
+      }
+    } catch {}
+
+    return res.status(200).json({ success: true, message: 'Demande rejetée.' });
+  } catch (error) {
+    console.error('❌ rejectCryptoActionsPurchase:', error.message);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+};
+
 // ✅ MODIFIEZ AUSSI VOTRE MODULE.EXPORTS POUR INCLURE LES NOUVELLES FONCTIONS
 module.exports = {
   initiateActionsPurchase,
@@ -1637,4 +1909,9 @@ module.exports = {
   sendWhatsAppMessageSafe,
   ensureUserHasPartnerField,
   ensurePartnerFieldMiddleware,
+  // Crypto
+  initiateActionsPurchaseCrypto,
+  getCryptoActionsPending,
+  validateCryptoActionsPurchase,
+  rejectCryptoActionsPurchase,
 };

@@ -1,5 +1,6 @@
 const express = require('express');
-const { signUP, initiateSignIn, verifyOTPAndSignIn, createAccount, checkAndGetUserByToken, getMyActions, updateUser, getAllActionnaires, toggleActionnaireStatus, getBeneficesEntreprise, getMyActionnaireInfo, getMyParrainageInfo, setMyParrain, resetPassWord, getOtherUsers, getUserById, changePassword, sendPasswordResetOTP, verifyOTPAndResetPassword, resendPasswordResetOTP, deleteUser, deleteMultipleUsers, signForNewActionnaire, verifyOTPAndCreateAccount, resendSignUpOTP, updateOwnProfile } = require('../Controller/UserControler');
+const { trackPageView, getStatsOverview, getLoginHistory, getPageViewStats } = require('../Controller/StatsController');
+const { signUP, initiateSignIn, verifyOTPAndSignIn, createAccount, checkAndGetUserByToken, getMyActions, updateUser, getAllActionnaires, toggleActionnaireStatus, getBeneficesEntreprise, getMyActionnaireInfo, getMyParrainageInfo, setMyParrain, resetPassWord, getOtherUsers, getUserById, changePassword, sendPasswordResetOTP, verifyOTPAndResetPassword, resendPasswordResetOTP, deleteUser, deleteMultipleUsers, signForNewActionnaire, verifyOTPAndCreateAccount, resendSignUpOTP, updateOwnProfile, getMyReferralLink } = require('../Controller/UserControler');
 const { createEntreprise, addNewYearBenefices, downloadRapport, updateAllDividendesFrom2025 } = require('../Controller/entrepriseController');
 const { diagnosePDF, bulkImportFromFile, bulkImportFromJSON, getImportStatus,previewPDF } = require('../Controller/bulkImportController');
 const { getDividendBalance, getDividendWithdrawalHistory, initiateDividendWithdrawal, confirmDividendWithdrawal, getTransactions, initiateDividendWithdrawalAdmin, confirmDividendWithdrawalAdmin } = require('../Controller/DividendController');
@@ -28,7 +29,11 @@ const {
   getAllTransactions,
   getSalesStatistics,
   getMyActionsPurchaseHistory,
-  handlePaydunyaCallback
+  handlePaydunyaCallback,
+  initiateActionsPurchaseCrypto,
+  getCryptoActionsPending,
+  validateCryptoActionsPurchase,
+  rejectCryptoActionsPurchase,
 } = require('../Controller/actionsPurchaseController'); // ✅ CORRIGÉ: Majuscule
 
 // ✅ IMPORT CALLBACK PAYDUNYA
@@ -172,6 +177,7 @@ router.get('/actionnaire/benefices-entreprise', authenticateToken.authenticate, 
 router.get('/actionnaire/mes-informations', authenticateToken.authenticate, getMyActionnaireInfo);
 router.get('/actionnaire/parrainage', authenticateToken.authenticate, getMyParrainageInfo);
 router.post('/actionnaire/parrainage', authenticateToken.authenticate, setMyParrain);
+router.get('/actionnaire/lien-parrainage', authenticateToken.authenticate, getMyReferralLink);
 
 // ===============================================
 // 👑 ROUTES ADMIN
@@ -305,6 +311,12 @@ router.get('/packs/admin/achats', authenticateToken.authenticate, authenticateTo
 router.put('/packs/admin/achats/:id/valider', authenticateToken.authenticate, authenticateToken.requireAdmin, validatePackPurchase);
 router.put('/packs/admin/achats/:id/rejeter', authenticateToken.authenticate, authenticateToken.requireAdmin, rejectPackPurchase);
 
+// ─── Achat d'actions via Crypto ───────────────────────────────────────────────
+router.post('/actions/acheter-crypto', authenticateToken.authenticate, upload.single('payment_proof'), initiateActionsPurchaseCrypto);
+router.get('/actions/admin/crypto-pending', authenticateToken.authenticate, authenticateToken.requireAdmin, getCryptoActionsPending);
+router.put('/actions/admin/crypto/:id/valider', authenticateToken.authenticate, authenticateToken.requireAdmin, validateCryptoActionsPurchase);
+router.put('/actions/admin/crypto/:id/rejeter', authenticateToken.authenticate, authenticateToken.requireAdmin, rejectCryptoActionsPurchase);
+
 // ===============================================
 // 💎 ROUTES RETRAIT CRYPTO (USDT TRC20)
 // ===============================================
@@ -317,5 +329,17 @@ router.get('/crypto/mes-retraits', authenticateToken.authenticate, getMyCryptoWi
 router.get('/crypto/admin/retraits', authenticateToken.authenticate, authenticateToken.requireAdmin, getAllCryptoWithdrawals);
 router.put('/crypto/admin/retraits/:id/accepter', authenticateToken.authenticate, authenticateToken.requireAdmin, acceptCryptoWithdrawal);
 router.put('/crypto/admin/retraits/:id/rejeter', authenticateToken.authenticate, authenticateToken.requireAdmin, rejectCryptoWithdrawal);
+
+// ===============================================
+// 📊 ROUTES TRACKING & STATISTIQUES
+// ===============================================
+
+// Public (token optionnel — géré côté frontend via la route interne Next.js)
+router.post('/api/track/pageview', trackPageView);
+
+// Admin seulement
+router.get('/api/admin/stats/overview',   authenticateToken.authenticate, authenticateToken.requireAdmin, getStatsOverview);
+router.get('/api/admin/stats/logins',     authenticateToken.authenticate, authenticateToken.requireAdmin, getLoginHistory);
+router.get('/api/admin/stats/pageviews',  authenticateToken.authenticate, authenticateToken.requireAdmin, getPageViewStats);
 
 module.exports = router;

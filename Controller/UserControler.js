@@ -552,23 +552,43 @@ module.exports.verifyOTPAndSignIn = async (req, res) => {
 module.exports.signForNewActionnaire = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       success: false,
       message: "Erreurs de validation",
-      errors: errors.array() 
+      errors: errors.array()
     });
   }
-  
+
   try {
-    const { firstName, lastName, telephone, password } = req.body;
+    const { firstName, lastName, telephone, password, ref_code } = req.body;
 
     // Vérifier si l'utilisateur existe déjà
     const userTelephoneExist = await User.findOne({ telephone });
     if (userTelephoneExist) {
-      return res.status(409).json({ 
+      return res.status(409).json({
         success: false,
-        message: "Un utilisateur avec ce numero existe déjà !" 
+        message: "Un utilisateur avec ce numero existe déjà !"
       });
+    }
+
+    // Chercher le parrain via son code de parrainage
+    let telephonePartenaire = null;
+    if (ref_code) {
+      const parrain = await User.findOne({ referral_code: ref_code.toUpperCase().trim() }).select('telephone firstName lastName');
+      if (parrain) {
+        telephonePartenaire = parrain.telephone;
+        console.log(`✅ Parrain trouvé via ref_code ${ref_code}: ${parrain.firstName} ${parrain.lastName}`);
+      }
+    }
+
+    // Générer un code de parrainage unique pour ce nouvel utilisateur
+    const crypto = require('crypto');
+    let referral_code;
+    let isUnique = false;
+    while (!isUnique) {
+      referral_code = crypto.randomBytes(4).toString('hex').toUpperCase();
+      const existing = await User.findOne({ referral_code });
+      if (!existing) isUnique = true;
     }
 
     // Cryptage du mot de passe
@@ -581,6 +601,11 @@ module.exports.signForNewActionnaire = async (req, res) => {
       lastName,
       telephone,
       password: cryptPassword,
+      referral_code,
+      ...(telephonePartenaire && {
+        telephonePartenaire,
+        telephonePartenaires: [telephonePartenaire],
+      }),
     });
 
     // Générer le token JWT
@@ -700,16 +725,44 @@ Si vous n'avez pas demandé cette réinitialisation, ignorez ce message.
 module.exports.initiateSignIn = async (req, res) => {
   const { telephone, password } = req.body;
 
+  // ── Tracking helper (chargé de façon paresseuse) ──
+  let collectTrackingInfo;
+  let LoginHistory;
+  try {
+    ({ collectTrackingInfo } = require('../Utils/trackingHelper'));
+    LoginHistory = require('../Models/LoginHistory');
+  } catch { /* module absent en dev minimal */ }
+
+  const logLogin = async (status, failureReason, user) => {
+    if (!LoginHistory || !collectTrackingInfo) return;
+    try {
+      const info = collectTrackingInfo(req);
+      await LoginHistory.create({
+        userId:        user?._id   || null,
+        telephone:     user?.telephone || telephone || null,
+        firstName:     user?.firstName || null,
+        lastName:      user?.lastName  || null,
+        status,
+        failureReason: failureReason || null,
+        ...info,
+      });
+    } catch (e) {
+      console.error('⚠️  Erreur enregistrement login history:', e.message);
+    }
+  };
+
   try {
     const user = await User.findOne({ telephone });
 
     if (!user) {
       console.warn("❌ Échec de connexion : utilisateur non trouvé");
+      await logLogin('failed', 'user_not_found', null);
       return res.status(401).json({ message: "Téléphone ou mot de passe incorrect" });
     }
 
     if (user.isBlocked) {
       console.warn(`🚫 Compte bloqué pour l'utilisateur : ${user._id}`);
+      await logLogin('failed', 'account_blocked', user);
       return res.status(403).json({ message: "Votre compte est bloqué" });
     }
 
@@ -717,6 +770,7 @@ module.exports.initiateSignIn = async (req, res) => {
 
     if (!comparePassword) {
       console.warn("❌ Échec de connexion : mot de passe incorrect");
+      await logLogin('failed', 'wrong_password', user);
       return res.status(401).json({ message: "Téléphone ou mot de passe incorrect" });
     }
 
@@ -735,11 +789,12 @@ module.exports.initiateSignIn = async (req, res) => {
     });
 
     console.log("✅ Connexion réussie pour l'utilisateur :", user._id);
-    
-    res.status(200).json({ 
-      message: "Connexion réussie", 
-      token, 
-      user: userWithoutPassword 
+    await logLogin('success', null, user);
+
+    res.status(200).json({
+      message: "Connexion réussie",
+      token,
+      user: userWithoutPassword
     });
 
   } catch (error) {
@@ -1618,26 +1673,39 @@ module.exports.getAllEntreprises = async (req, res) => {
     }
 
     // Rechercher l'utilisateur par ID
-    const user = await User.findById(userId).select("firstName lastName email telephone role nbre_actions dividende isBlocked status telephonePartenaire");
+    const user = await User.findById(userId).select("firstName lastName email telephone role nbre_actions dividende isBlocked status telephonePartenaire telephonePartenaires referral_code");
 
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Utilisateur non trouvé" 
+        message: "Utilisateur non trouvé"
       });
+    }
+
+    // Générer automatiquement un referral_code si manquant
+    if (!user.referral_code) {
+      const crypto = require('crypto');
+      let code, isUnique = false;
+      while (!isUnique) {
+        code = crypto.randomBytes(4).toString('hex').toUpperCase();
+        const existing = await User.findOne({ referral_code: code });
+        if (!existing) isUnique = true;
+      }
+      user.referral_code = code;
+      await user.save();
     }
 
     // Vérifier si l'utilisateur est bloqué
     if (user.isBlocked) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        message: "Votre compte est bloqué. Contactez l'administrateur." 
+        message: "Votre compte est bloqué. Contactez l'administrateur."
       });
     }
 
     // Vérifier si l'utilisateur est un actionnaire
     if (user.role !== 'actionnaire') {
-      return res.status(200).json({ 
+      return res.status(200).json({
         success: true,
         message: "Vous n'êtes pas un actionnaire",
         user: {
@@ -1673,6 +1741,8 @@ module.exports.getAllEntreprises = async (req, res) => {
         email: user.email,
         telephone: user.telephone,
         telephonePartenaire: user.telephonePartenaire,
+        telephonePartenaires: user.telephonePartenaires || [],
+        referral_code: user.referral_code,
       },
       entreprise_info: entreprise ? {
         annee: entreprise.annee,
@@ -1944,38 +2014,50 @@ module.exports.getMyActionnaireInfo = async (req, res) => {
 module.exports.getMyParrainageInfo = async (req, res) => {
   try {
     const userId = req.user?.id || req.userData?.id;
-    const user = await User.findById(userId).select('firstName lastName telephone telephonePartenaire');
+    const user = await User.findById(userId).select('firstName lastName telephone telephonePartenaire telephonePartenaires');
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
     }
 
-    // Trouver le parrain (la personne qui a parrainé cet utilisateur)
-    let parrain = null;
-    if (user.telephonePartenaire) {
-      const parrainUser = await User.findOne({ telephone: user.telephonePartenaire })
-        .select('firstName lastName telephone');
+    // Collecter tous les numéros de parrains (tableau + champ simple pour compat)
+    const allParrainPhones = [...(user.telephonePartenaires || [])];
+    if (user.telephonePartenaire && !allParrainPhones.includes(user.telephonePartenaire)) {
+      allParrainPhones.push(user.telephonePartenaire);
+    }
+
+    // Trouver tous les parrains
+    const parrains = [];
+    for (const phone of allParrainPhones) {
+      const parrainUser = await User.findOne({ telephone: phone }).select('firstName lastName telephone');
       if (parrainUser) {
-        parrain = {
+        parrains.push({
           nom: `${parrainUser.firstName} ${parrainUser.lastName}`,
           telephone: parrainUser.telephone
-        };
+        });
       }
     }
 
-    // Trouver les filleuls (personnes que cet utilisateur a parrainées)
-    const filleuls = await User.find({ telephonePartenaire: user.telephone })
-      .select('firstName lastName telephone')
-      .lean();
+    // Trouver les filleuls (cherche dans les deux champs pour compat)
+    const filleulsRaw = await User.find({
+      $or: [
+        { telephonePartenaire: user.telephone },
+        { telephonePartenaires: user.telephone }
+      ]
+    }).select('firstName lastName telephone').lean();
+
+    // Dédoublonnage par téléphone
+    const uniqueFilleuls = [...new Map(filleulsRaw.map(f => [f.telephone, f])).values()];
 
     return res.status(200).json({
       success: true,
-      parrain,
-      filleuls: filleuls.map(f => ({
+      parrains,
+      parrain: parrains[0] || null, // rétrocompatibilité
+      filleuls: uniqueFilleuls.map(f => ({
         nom: `${f.firstName} ${f.lastName}`,
         telephone: f.telephone
       })),
-      nombre_filleuls: filleuls.length
+      nombre_filleuls: uniqueFilleuls.length
     });
 
   } catch (error) {
@@ -2401,13 +2483,22 @@ module.exports.setMyParrain = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Ce compte ne peut pas être utilisé comme parrain' });
     }
 
-    // Sauvegarder le parrain
-    user.telephonePartenaire = telephonePartenaire;
+    // Vérifier si ce parrain est déjà enregistré
+    const alreadyLinked = (user.telephonePartenaires || []).includes(telephonePartenaire)
+      || user.telephonePartenaire === telephonePartenaire;
+    if (alreadyLinked) {
+      return res.status(400).json({ success: false, message: 'Ce parrain est déjà lié à votre compte' });
+    }
+
+    // Sauvegarder le parrain (champ principal + tableau)
+    user.telephonePartenaire = telephonePartenaire; // parrain principal (compat achats)
+    if (!user.telephonePartenaires) user.telephonePartenaires = [];
+    user.telephonePartenaires.push(telephonePartenaire);
     await user.save();
 
     return res.status(200).json({
       success: true,
-      message: 'Parrain assigné avec succès',
+      message: 'Parrain ajouté avec succès',
       parrain: {
         nom: `${parrain.firstName} ${parrain.lastName}`,
         telephone: parrain.telephone
@@ -2427,3 +2518,37 @@ module.exports.sendWhatsAppMessagePass = sendWhatsAppMessagePass;
 
 
 
+
+// ─── LIEN DE PARRAINAGE PERSONNEL ─────────────────────────────────────────────
+module.exports.getMyReferralLink = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.userData?.id;
+    const user = await User.findById(userId).select('firstName lastName telephone referral_code');
+    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable.' });
+
+    // Générer le code s'il manque
+    if (!user.referral_code) {
+      const crypto = require('crypto');
+      let code, isUnique = false;
+      while (!isUnique) {
+        code = crypto.randomBytes(4).toString('hex').toUpperCase();
+        const existing = await User.findOne({ referral_code: code });
+        if (!existing) isUnique = true;
+      }
+      user.referral_code = code;
+      await user.save();
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://actionnaire.diokoclient.com';
+    const link = `${frontendUrl}/auth/register?ref=${user.referral_code}`;
+
+    return res.status(200).json({
+      success: true,
+      referral_code: user.referral_code,
+      lien: link,
+    });
+  } catch (error) {
+    console.error('Erreur getMyReferralLink:', error.message);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+};
