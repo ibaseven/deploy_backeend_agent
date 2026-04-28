@@ -34,6 +34,10 @@ const {
   getCryptoActionsPending,
   validateCryptoActionsPurchase,
   rejectCryptoActionsPurchase,
+  initiateActionsPurchaseTransfert,
+  getTransfertActionsPending,
+  validateTransfertActionsPurchase,
+  rejectTransfertActionsPurchase,
 } = require('../Controller/actionsPurchaseController'); // ✅ CORRIGÉ: Majuscule
 
 // ✅ IMPORT CALLBACK PAYDUNYA
@@ -316,6 +320,12 @@ router.post('/actions/acheter-crypto', authenticateToken.authenticate, upload.si
 router.get('/actions/admin/crypto-pending', authenticateToken.authenticate, authenticateToken.requireAdmin, getCryptoActionsPending);
 router.put('/actions/admin/crypto/:id/valider', authenticateToken.authenticate, authenticateToken.requireAdmin, validateCryptoActionsPurchase);
 router.put('/actions/admin/crypto/:id/rejeter', authenticateToken.authenticate, authenticateToken.requireAdmin, rejectCryptoActionsPurchase);
+
+// ─── Achat d'actions via Transfert (WU / Ria / MoneyGram) ────────────────────
+router.post('/actions/acheter-transfert', authenticateToken.authenticate, upload.single('payment_proof'), initiateActionsPurchaseTransfert);
+router.get('/actions/admin/transfert-pending', authenticateToken.authenticate, authenticateToken.requireAdmin, getTransfertActionsPending);
+router.put('/actions/admin/transfert/:id/valider', authenticateToken.authenticate, authenticateToken.requireAdmin, validateTransfertActionsPurchase);
+router.put('/actions/admin/transfert/:id/rejeter', authenticateToken.authenticate, authenticateToken.requireAdmin, rejectTransfertActionsPurchase);
 
 // ===============================================
 // 💎 ROUTES RETRAIT CRYPTO (USDT TRC20)

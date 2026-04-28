@@ -123,6 +123,16 @@ const actionsPurchaseSchema = new Schema({
     type: String,
     default: null,
   },
+  // Achat via transfert (Western Union / Ria / MoneyGram)
+  transfert_proof_url: {
+    type: String,
+    default: null,
+  },
+  transfert_service: {
+    type: String,
+    enum: ['western_union', 'ria', 'money_gram', 'autre'],
+    default: null,
+  },
   admin_note: {
     type: String,
     default: '',

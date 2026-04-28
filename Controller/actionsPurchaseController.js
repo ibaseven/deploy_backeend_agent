@@ -104,6 +104,29 @@ async function sendPDFWhatsApp(phoneNumber, pdfUrl, fileName, caption) {
   }
 }
 
+// Envoie une image directement sur WhatsApp (preuve de paiement)
+async function sendWhatsAppImageSafe(phoneNumber, imageUrl, caption) {
+  try {
+    const data = qs.stringify({
+      token:   process.env.ULTRAMSG_TOKEN,
+      to:      phoneNumber.replace(/\D/g, ''),
+      image:   imageUrl,
+      caption: caption || '',
+    });
+    const response = await axios({
+      method: 'post',
+      url:    `https://api.ultramsg.com/${process.env.ULTRAMSG_INSTANCE_ID}/messages/image`,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      data,
+    });
+    console.log('✅ Image WhatsApp envoyée :', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Erreur envoi image WhatsApp:', error.message);
+    return null;
+  }
+}
+
 // ✅ ÉTAPE 1: INITIER L'ACHAT D'ACTIONS (ENDPOINT PRINCIPAL)
 const initiateActionsPurchase = async (req, res) => {
   try {
@@ -1750,19 +1773,28 @@ const initiateActionsPurchaseCrypto = async (req, res) => {
     });
     await actionsPurchase.save();
 
-    // WhatsApp admin
+    // WhatsApp admin — message texte
     const montantUSD = (nbreActions * 2).toFixed(2);
     const adminMsg =
-`₿ Nouvelle demande achat actions CRYPTO
+`₿ *Nouvelle demande achat actions — CRYPTO (USDT)*
 
-👤 ${user.firstName} ${user.lastName} (${user.telephone})
-📊 ${nbreActions} actions
-💰 ~${montantUSD} USDT (${montantTotal.toLocaleString()} FCFA)
-📎 Preuve : ${proofUrl}
+👤 *${user.firstName} ${user.lastName}*
+📞 ${user.telephone}
+📊 Nombre d'actions : *${nbreActions}*
+💰 Montant : *~${montantUSD} USDT* (${montantTotal.toLocaleString()} FCFA)
 
-Validez sur /dashboard/admin/purchaseActionnaire`;
+✅ Validez sur le dashboard admin → /dashboard/admin/purchaseActionnaire`;
 
     await sendWhatsAppMessageSafe('+221773878232', adminMsg);
+
+    // WhatsApp admin — envoyer la capture de preuve directement
+    if (proofUrl) {
+      await sendWhatsAppImageSafe(
+        '+221773878232',
+        proofUrl,
+        `📎 Preuve USDT — ${user.firstName} ${user.lastName} — ${nbreActions} actions`
+      );
+    }
 
     return res.status(201).json({
       success:        true,
@@ -1897,6 +1929,237 @@ const rejectCryptoActionsPurchase = async (req, res) => {
   }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 💸 ACHAT D'ACTIONS VIA TRANSFERT (Western Union / Ria / MoneyGram)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const TRANSFERT_PHONE   = '+221773878232';
+const TRANSFERT_LABELS  = {
+  western_union: 'Western Union',
+  ria:           'Ria Money Transfer',
+  money_gram:    'MoneyGram',
+  autre:         'Autre service',
+};
+
+/**
+ * POST /actions/acheter-transfert
+ * Actionnaire soumet sa demande avec la capture du transfert
+ */
+const initiateActionsPurchaseTransfert = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.userData?.id;
+    if (!userId) return res.status(401).json({ success: false, message: 'Non authentifié.' });
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable.' });
+    if (user.isBlocked || user.status !== 'active')
+      return res.status(403).json({ success: false, message: 'Compte bloqué ou inactif.' });
+
+    if (!req.file)
+      return res.status(400).json({ success: false, message: "Veuillez joindre une capture d'écran du transfert." });
+
+    const { nombre_actions, transfert_service, telephonePartenaire: reqParrain } = req.body;
+    const nbreActions = parseFloat(nombre_actions);
+    if (!nbreActions || nbreActions <= 0)
+      return res.status(400).json({ success: false, message: "Nombre d'actions invalide." });
+
+    const serviceLabel = TRANSFERT_LABELS[transfert_service] || TRANSFERT_LABELS['autre'];
+
+    // Prix dynamique
+    const pricingInfo  = await calculateActionPrice(userId);
+    const montantTotal = Math.round(pricingInfo.prix_unitaire * nbreActions);
+
+    // Upload preuve S3
+    let proofUrl = null;
+    try {
+      const s3Key = `preuves-transfert-actions/${Date.now()}_${req.file.originalname.replace(/\s/g, '_')}`;
+      await s3.putObject({
+        Bucket:      process.env.AWS_BUCKET_NAME,
+        Key:         s3Key,
+        Body:        req.file.buffer,
+        ContentType: req.file.mimetype || 'image/jpeg',
+      }).promise();
+      proofUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+    } catch (uploadErr) {
+      console.error('❌ Upload S3 preuve transfert actions:', uploadErr.message);
+      return res.status(500).json({ success: false, message: "Erreur lors de l'upload de la preuve." });
+    }
+
+    const telephonePartenaireFinal = reqParrain || user.telephonePartenaire || null;
+    const transfertToken = `TRANSFERT_${Date.now()}_${userId}`;
+
+    const actionsPurchase = new ActionsPurchase({
+      user_id:                 userId,
+      paydunya_transaction_id: transfertToken,
+      invoice_token:           transfertToken,
+      nombre_actions:          nbreActions,
+      prix_unitaire:           pricingInfo.prix_unitaire,
+      montant_total:           montantTotal,
+      dividende_calculated:    0,
+      status:                  'pending',
+      payment_method:          'transfert',
+      telephonePartenaire:     telephonePartenaireFinal,
+      transfert_proof_url:     proofUrl,
+      transfert_service:       transfert_service || 'autre',
+    });
+    await actionsPurchase.save();
+
+    // WhatsApp admin — message texte
+    const adminMsg =
+`💸 *Nouvelle demande achat actions — TRANSFERT*
+
+👤 *${user.firstName} ${user.lastName}*
+📞 ${user.telephone}
+🏦 Service : *${serviceLabel}*
+📊 Nombre d'actions : *${nbreActions}*
+💰 Montant : *${montantTotal.toLocaleString()} FCFA*
+
+✅ Validez sur le dashboard admin → /dashboard/admin/purchaseActionnaire`;
+
+    await sendWhatsAppMessageSafe('+221773878232', adminMsg);
+
+    // WhatsApp admin — envoyer la capture de preuve directement
+    if (proofUrl) {
+      await sendWhatsAppImageSafe(
+        '+221773878232',
+        proofUrl,
+        `📎 Preuve de transfert — ${user.firstName} ${user.lastName} (${serviceLabel})`
+      );
+    }
+
+    return res.status(201).json({
+      success:        true,
+      message:        `Demande soumise pour ${nbreActions} actions. L'admin vérifiera votre transfert.`,
+      transaction_id: actionsPurchase._id,
+    });
+  } catch (error) {
+    console.error('❌ initiateActionsPurchaseTransfert:', error.message);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+};
+
+/**
+ * GET /actions/admin/transfert-pending
+ * Admin : liste des achats transfert
+ */
+const getTransfertActionsPending = async (req, res) => {
+  try {
+    const { status = 'pending' } = req.query;
+    const filter = { payment_method: 'transfert' };
+    if (['pending', 'completed', 'rejected'].includes(status)) filter.status = status;
+
+    const achats = await ActionsPurchase.find(filter)
+      .populate('user_id', 'firstName lastName telephone nbre_actions dividende')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({ success: true, achats });
+  } catch (error) {
+    console.error('❌ getTransfertActionsPending:', error.message);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+};
+
+/**
+ * PUT /actions/admin/transfert/:id/valider
+ * Admin valide → crédite actions + bonus parrainage + contrat PDF
+ */
+const validateTransfertActionsPurchase = async (req, res) => {
+  try {
+    const { id }         = req.params;
+    const { admin_note } = req.body;
+
+    const actionsPurchase = await ActionsPurchase.findById(id);
+    if (!actionsPurchase) return res.status(404).json({ success: false, message: 'Transaction introuvable.' });
+    if (actionsPurchase.status !== 'pending') return res.status(400).json({ success: false, message: 'Transaction déjà traitée.' });
+    if (actionsPurchase.payment_method !== 'transfert') return res.status(400).json({ success: false, message: 'Réservé aux achats transfert.' });
+
+    const user = await User.findById(actionsPurchase.user_id);
+    if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable.' });
+
+    actionsPurchase.status          = 'completed';
+    actionsPurchase.payment_date    = new Date();
+    actionsPurchase.processed_at    = new Date();
+    actionsPurchase.admin_note      = admin_note || '';
+    actionsPurchase.paydunya_status = 'completed';
+    await actionsPurchase.save();
+
+    // Créditer les actions
+    user.nbre_actions = (user.nbre_actions || 0) + actionsPurchase.nombre_actions;
+    await user.save();
+
+    // Bonus parrainage multi-niveaux
+    await attributeBonusAuPartenaire(actionsPurchase, user);
+
+    // Contrat PDF → WhatsApp
+    const serviceLabel = TRANSFERT_LABELS[actionsPurchase.transfert_service] || 'Transfert';
+    try {
+      const updatedUser = await User.findById(user._id);
+      const pdfBuffer   = await generateContractPDF(actionsPurchase, updatedUser);
+      const fileName    = `ContratActionsTransfert_${actionsPurchase._id}_${Date.now()}.pdf`;
+      const pdfResult   = await uploadPDFToS3(pdfBuffer, fileName);
+
+      await sendPDFWhatsApp(
+        user.telephone,
+        pdfResult.cleanUrl,
+        fileName,
+        `Félicitations ${user.firstName} ${user.lastName} ! Voici votre contrat pour l'achat de ${actionsPurchase.nombre_actions.toLocaleString()} actions via ${serviceLabel} — ${actionsPurchase.montant_total.toLocaleString()} FCFA. Merci — Équipe Dioko`
+      );
+    } catch (pdfErr) {
+      console.error('❌ Erreur contrat PDF transfert:', pdfErr.message);
+      try {
+        await sendWhatsAppMessageSafe(
+          user.telephone,
+          `✅ Achat validé — Dioko\n\nFélicitations ${user.firstName} ${user.lastName} !\n\n📊 ${actionsPurchase.nombre_actions.toLocaleString()} actions créditées.\n💰 ${actionsPurchase.montant_total.toLocaleString()} FCFA\n🏦 Via ${serviceLabel}\n\nMerci pour votre confiance !\nÉquipe Dioko`
+        );
+      } catch {}
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `${actionsPurchase.nombre_actions} actions créditées. Contrat envoyé par WhatsApp.`,
+    });
+  } catch (error) {
+    console.error('❌ validateTransfertActionsPurchase:', error.message);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+};
+
+/**
+ * PUT /actions/admin/transfert/:id/rejeter
+ */
+const rejectTransfertActionsPurchase = async (req, res) => {
+  try {
+    const { id }         = req.params;
+    const { admin_note } = req.body;
+
+    const actionsPurchase = await ActionsPurchase.findById(id);
+    if (!actionsPurchase) return res.status(404).json({ success: false, message: 'Transaction introuvable.' });
+    if (actionsPurchase.status !== 'pending') return res.status(400).json({ success: false, message: 'Transaction déjà traitée.' });
+
+    actionsPurchase.status       = 'rejected';
+    actionsPurchase.processed_at = new Date();
+    actionsPurchase.admin_note   = admin_note || '';
+    await actionsPurchase.save();
+
+    const serviceLabel = TRANSFERT_LABELS[actionsPurchase.transfert_service] || 'Transfert';
+    try {
+      const user = await User.findById(actionsPurchase.user_id);
+      if (user) {
+        await sendWhatsAppMessageSafe(
+          user.telephone,
+          `❌ Demande rejetée — Dioko\n\nBonjour ${user.firstName} ${user.lastName},\n\nVotre demande d'achat de ${actionsPurchase.nombre_actions} actions via ${serviceLabel} a été rejetée.${admin_note ? `\nRaison : ${admin_note}` : ''}\n\nContactez-nous pour plus d'informations.\nÉquipe Dioko`
+        );
+      }
+    } catch {}
+
+    return res.status(200).json({ success: true, message: 'Demande rejetée.' });
+  } catch (error) {
+    console.error('❌ rejectTransfertActionsPurchase:', error.message);
+    return res.status(500).json({ success: false, message: 'Erreur serveur.' });
+  }
+};
+
 // ✅ MODIFIEZ AUSSI VOTRE MODULE.EXPORTS POUR INCLURE LES NOUVELLES FONCTIONS
 module.exports = {
   initiateActionsPurchase,
@@ -1914,4 +2177,9 @@ module.exports = {
   getCryptoActionsPending,
   validateCryptoActionsPurchase,
   rejectCryptoActionsPurchase,
+  // Transfert (WU / Ria / MoneyGram)
+  initiateActionsPurchaseTransfert,
+  getTransfertActionsPending,
+  validateTransfertActionsPurchase,
+  rejectTransfertActionsPurchase,
 };
