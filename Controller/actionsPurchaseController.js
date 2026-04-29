@@ -1397,9 +1397,9 @@ Merci 💙
 // ===============================================
 
 // ─── Taux par niveau (chaque niveau = moitié du précédent) ──────────────────
-const TAUX_PARRAINAGE_NIVEAUX = [0.10, 0.05, 0.025];
-//  Niveau :                        1     2     3
-//  Sur 100 000 FCFA :          10 000 5 000 2 500
+const TAUX_PARRAINAGE_NIVEAUX = [0.10, 0.05, 0.025, 0.0125];
+//  Niveau :                        1     2     3      4
+//  Sur 100 000 FCFA :          10 000 5 000 2 500  1 250
 
 const attributeBonusAuPartenaire = async (actionsPurchase, user) => {
   try {
@@ -1490,7 +1490,7 @@ L'équipe Dioko`;
     if (!level1Data) return false; // aucun parrain valide trouvé
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // NIVEAUX 2 → 5 : remonter la chaîne depuis le parrain principal (niveau 1)
+    // NIVEAUX 2 → 4 : remonter la chaîne depuis le parrain principal (niveau 1)
     // À chaque étage : telephonePartenaire (champ singulier ancien) OU
     //                  telephonePartenaires[0] (nouveau tableau, 1er élément)
     // ═══════════════════════════════════════════════════════════════════════════
