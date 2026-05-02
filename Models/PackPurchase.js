@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const PACKS_CONFIG = [
+  { nom: 'Mini',      nbre_actions: 10,   montant_fcfa: 50000,   montant_usd: 100  },
   { nom: 'Bronze',    nbre_actions: 100,  montant_fcfa: 300000,  montant_usd: 600  },
   { nom: 'Silver',    nbre_actions: 200,  montant_fcfa: 400000,  montant_usd: 800  },
   { nom: 'Or',        nbre_actions: 500,  montant_fcfa: 800000,  montant_usd: 1600 },
@@ -17,7 +18,7 @@ const packPurchaseSchema = new mongoose.Schema(
     },
     pack_nom: {
       type: String,
-      enum: ['Bronze', 'Silver', 'Or', 'Platinium', 'Diamond'],
+      enum: ['Mini', 'Bronze', 'Silver', 'Or', 'Platinium', 'Diamond'],
       required: true,
     },
     nbre_actions: { type: Number, required: true },
