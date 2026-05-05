@@ -624,6 +624,20 @@ const versementManuelAdmin = async (req, res) => {
     const numeroVers = installment.versements.length;
     const estComplet = installment.status === 'complete';
 
+    // ─── Commissions de parrainage sur ce versement manuel ───────────────────
+    try {
+      const { attributeBonusAuPartenaire } = require('./actionsPurchaseController');
+      const fakeTransaction = {
+        montant_total:           montantF,
+        telephonePartenaire:     installment.telephonePartenaire || null,
+        bonusPartenaireAttribue: false,
+      };
+      await attributeBonusAuPartenaire(fakeTransaction, user);
+      console.log(`💸 Commissions parrainage versement manuel distribuées`);
+    } catch (bonusErr) {
+      console.error('❌ Erreur commissions versement manuel:', bonusErr.message);
+    }
+
     // Créditer les actions immédiatement
     if (actionsACrediter > 0) {
       user.nbre_actions = (user.nbre_actions || 0) + actionsACrediter;

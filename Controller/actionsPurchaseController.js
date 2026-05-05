@@ -1006,6 +1006,19 @@ Montant total : ${installmentPurchase.prix_unitaire.toLocaleString()} FCFA
 
       console.log(`✅ Versement ajouté: ${montant.toLocaleString()} FCFA (${nombre_actions_equivalent.toFixed(3)} actions)`);
 
+      // ─── Commissions de parrainage sur ce versement ──────────────────────────
+      try {
+        const fakeTransaction = {
+          montant_total:          montant,
+          telephonePartenaire:    installmentPurchase.telephonePartenaire || null,
+          bonusPartenaireAttribue: false,
+        };
+        await attributeBonusAuPartenaire(fakeTransaction, user);
+        console.log(`💸 Commissions parrainage versement distribuées`);
+      } catch (bonusErr) {
+        console.error('❌ Erreur commissions versement:', bonusErr.message);
+      }
+
       // ─── Créditer les actions immédiatement à chaque versement ───────────────
       const actionsACrediter = Math.floor(nombre_actions_equivalent);
       if (actionsACrediter > 0) {
