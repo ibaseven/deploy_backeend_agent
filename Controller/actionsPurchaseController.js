@@ -1006,82 +1006,58 @@ Montant total : ${installmentPurchase.prix_unitaire.toLocaleString()} FCFA
 
       console.log(`✅ Versement ajouté: ${montant.toLocaleString()} FCFA (${nombre_actions_equivalent.toFixed(3)} actions)`);
 
-      // Si le contrat est complètement payé, créditer les actions
-      if (installmentPurchase.status === 'complete') {
-        console.log('🎉 Contrat complètement payé ! Crédit des actions...');
+      // ─── Créditer les actions immédiatement à chaque versement ───────────────
+      const actionsACrediter = Math.floor(nombre_actions_equivalent);
+      if (actionsACrediter > 0) {
+        user.nbre_actions = (user.nbre_actions || 0) + actionsACrediter;
+        if (!user.actionsHistory) user.actionsHistory = [];
+        user.actionsHistory.push({
+          date:           new Date(),
+          type:           'achat',
+          nombre_actions: actionsACrediter,
+          montant:        montant,
+          transaction_id: transactionToken,
+          description:    `Versement moratoire n°${installmentPurchase.versements.length} — ${montant.toLocaleString()} FCFA`
+        });
+        await user.save();
+        console.log(`✅ ${actionsACrediter} actions créditées immédiatement à ${user.telephone}`);
+      }
 
-        await installmentPurchase.crediterActions();
+      // ─── Générer et envoyer le contrat PDF pour CE versement ─────────────────
+      const estComplet   = installmentPurchase.status === 'complete';
+      const pourcentage  = installmentPurchase.getPourcentagePaye();
+      const numeroVers   = installmentPurchase.versements.length;
 
-        // // PARRAINAGE DÉSACTIVÉ - Attribution bonus partenaire commentée
-        // if (installmentPurchase.partenaireId && !installmentPurchase.bonusPartenaireAttribue) {
-        //   const bonusMontant = installmentPurchase.montant_total * 0.10;
-        //   const partenaire = await User.findById(installmentPurchase.partenaireId);
-        //   if (partenaire) {
-        //     partenaire.dividende = (partenaire.dividende || 0) + bonusMontant;
-        //     await partenaire.save();
-        //     installmentPurchase.bonusPartenaireAttribue = true;
-        //     installmentPurchase.bonusMontant = bonusMontant;
-        //     await installmentPurchase.save();
-        //     try {
-        //       await sendWhatsAppMessageSafe(partenaire.telephone, `🎁 Bonus de parrainage...`);
-        //     } catch (err) {
-        //       console.error('❌ Erreur message partenaire:', err.message);
-        //     }
-        //   }
-        // }
+      const captionPDF = estComplet
+        ? `🎉 Félicitations ${user.firstName} ${user.lastName} ! Tous vos versements sont complétés. ${actionsACrediter} actions créditées ce versement. Total moratoire : ${installmentPurchase.nombre_actions_total.toLocaleString()} actions. Merci — Équipe Dioko`
+        : `💳 Versement n°${numeroVers} validé — ${montant.toLocaleString()} FCFA → ${actionsACrediter} actions créditées. Progression : ${pourcentage}% payé (reste ${installmentPurchase.montant_restant.toLocaleString()} FCFA). Équipe Dioko`;
 
-        // Recharger l'utilisateur pour avoir les données à jour
-        const updatedUser = await User.findById(user._id);
+      try {
+        console.log(`📄 Génération contrat PDF versement n°${numeroVers}...`);
 
-        // Générer et envoyer le contrat PDF
+        const purchaseData = {
+          nombre_actions: actionsACrediter,
+          prix_unitaire:  installmentPurchase.prix_unitaire,
+          montant_total:  montant,          // montant de CE versement
+          _id:            installmentPurchase._id,
+        };
+
+        const pdfBuffer = await generateContractPDF(purchaseData, user);
+        const fileName  = `ContratVersement_${installmentPurchase._id}_${numeroVers}_${Date.now()}.pdf`;
+        const pdfUrl    = await uploadPDFToS3(pdfBuffer, fileName);
+
+        console.log("✅ PDF versement uploadé sur S3:", pdfUrl.cleanUrl);
+
+        await sendPDFWhatsApp(user.telephone, pdfUrl.cleanUrl, fileName, captionPDF);
+        console.log(`✅ Contrat versement n°${numeroVers} envoyé par WhatsApp`);
+
+      } catch (pdfError) {
+        console.error("❌ Erreur envoi contrat versement PDF:", pdfError.message);
+        // Secours : message texte
         try {
-          console.log("📄 Génération du contrat PDF pour achat par versements...");
-
-          // Préparer les données pour le contrat
-          const purchaseData = {
-            nombre_actions: installmentPurchase.nombre_actions_total,
-            prix_unitaire: installmentPurchase.prix_unitaire,
-            montant_total: installmentPurchase.montant_total,
-            _id: installmentPurchase._id
-          };
-
-          const pdfBuffer = await generateContractPDF(purchaseData, updatedUser);
-          const fileName = `ContratActionsVersements${installmentPurchase._id}${Date.now()}.pdf`;
-          const pdfUrl = await uploadPDFToS3(pdfBuffer, fileName);
-
-          console.log("✅ PDF uploadé sur S3:", pdfUrl.cleanUrl);
-
-          // Envoi du PDF comme document WhatsApp via UltraMsg
-          await sendPDFWhatsApp(
-            user.telephone,
-            pdfUrl.cleanUrl,
-            fileName,
-            `Félicitations ${user.firstName} ${user.lastName} ! Votre achat par versements est complètement payé ! Actions créditées: ${installmentPurchase.nombre_actions_total.toLocaleString()} — Montant total: ${installmentPurchase.montant_total.toLocaleString()} FCFA — Total actions: ${updatedUser.nbre_actions.toLocaleString()} — Merci pour votre confiance ! Équipe Dioko`
-          );
-          console.log("✅ Contrat PDF envoyé par WhatsApp (UltraMsg document)");
-        } catch (pdfError) {
-          console.error("❌ Erreur envoi contrat PDF:", pdfError.message);
-
-          // Message WhatsApp de secours sans PDF
-          try {
-            await sendWhatsAppMessageSafe(
-              user.telephone,
-              `🎉 Achat complété - Dioko\n\nFélicitations ${user.firstName} ${user.lastName} !\n\nVotre achat par versements est complètement payé !\n\n📊 Actions créditées: ${installmentPurchase.nombre_actions_total.toLocaleString()}\n💰 Montant total: ${installmentPurchase.montant_total.toLocaleString()} FCFA\n🔢 Nombre de versements: ${installmentPurchase.versements.length}\n📈 Total actions: ${updatedUser.nbre_actions.toLocaleString()}\n\nMerci pour votre confiance !\nÉquipe Dioko`
-            );
-          } catch (err) {
-            console.error('❌ Erreur message client:', err.message);
-          }
-        }
-
-      } else {
-        // Message WhatsApp client - Versement partiel
-        const pourcentage = installmentPurchase.getPourcentagePaye();
-        const whatsappMessage = `💳 Versement reçu - Dioko\n\nBonjour ${user.firstName} ${user.lastName},\n\nVotre versement a été validé avec succès !\n\n💰 Montant: ${montant.toLocaleString()} FCFA\n📊 Équivalent: ${nombre_actions_equivalent.toFixed(3)} actions\n\n📈 Progression:\n- Total à payer: ${installmentPurchase.montant_total.toLocaleString()} FCFA\n- Payé: ${installmentPurchase.montant_paye.toLocaleString()} FCFA (${pourcentage}%)\n- Reste: ${installmentPurchase.montant_restant.toLocaleString()} FCFA\n\nContinuez à payer petit à petit !\nÉquipe Dioko`;
-
-        try {
-          await sendWhatsAppMessageSafe(user.telephone, whatsappMessage);
+          await sendWhatsAppMessageSafe(user.telephone, captionPDF);
         } catch (err) {
-          console.error('❌ Erreur message client:', err.message);
+          console.error('❌ Erreur message secours client:', err.message);
         }
       }
 

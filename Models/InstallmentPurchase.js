@@ -103,6 +103,17 @@ const installmentPurchaseSchema = new mongoose.Schema({
     type: Date
   },
 
+  // Créé par l'admin (assigné manuellement à un user)
+  created_by_admin: {
+    type: Boolean,
+    default: false
+  },
+  admin_creator_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
   // Métadonnées
   metadata: {
     type: mongoose.Schema.Types.Mixed

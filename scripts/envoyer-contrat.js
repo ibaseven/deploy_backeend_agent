@@ -2,12 +2,13 @@
  * Script : envoyer-contrat.js
  *
  * Usage :
- *   node scripts/envoyer-contrat.js                  → numéro par défaut (+221775968426)
- *   node scripts/envoyer-contrat.js +221XXXXXXXXX    → numéro personnalisé
+ *   node scripts/envoyer-contrat.js                            → numéro par défaut, actions depuis la BDD
+ *   node scripts/envoyer-contrat.js +221XXXXXXXXX              → numéro personnalisé, actions depuis la BDD
+ *   node scripts/envoyer-contrat.js +221XXXXXXXXX 500          → numéro + 500 actions forcées
  *
  * Ce que fait le script :
  *  1. Cherche l'actionnaire par son numéro de téléphone en base
- *  2. Génère son contrat PDF avec son nombre d'actions actuel
+ *  2. Génère son contrat PDF (prix : 2 000 FCFA/action)
  *  3. Upload le PDF sur S3
  *  4. Envoie le PDF par WhatsApp via UltraMsg
  */
@@ -23,8 +24,10 @@ const connectDB               = require('../Config/db');
 const User                    = require('../Models/User');
 const { generateContractPDF } = require('../Services/contractGenerator');
 
-// ─── Numéro cible ─────────────────────────────────────────────────────────────
-const TELEPHONE_CIBLE = process.argv[2] || '+221775968426';
+// ─── Arguments ────────────────────────────────────────────────────────────────
+const TELEPHONE_CIBLE   = process.argv[2] || '+221775968426';
+const ACTIONS_FORCEES   = process.argv[3] ? parseInt(process.argv[3], 10) : null; // optionnel
+const PRIX_PAR_ACTION   = 1000; // FCFA
 
 // ─── AWS S3 ───────────────────────────────────────────────────────────────────
 const s3 = new AWS.S3({
@@ -90,25 +93,38 @@ async function main() {
     process.exit(1);
   }
 
-  const nbreActions = user.nbre_actions || 0;
+  // Actions de la BDD
+  const actionsEnBDD = user.nbre_actions || 0;
+
+  // Nouvelles actions à céder (via CLI) — ou 0 si pas fourni
+  const nouvellesActions = ACTIONS_FORCEES !== null ? ACTIONS_FORCEES : 0;
+
+  // Total affiché dans le contrat = BDD + nouvelles
+  const totalActionsApres = actionsEnBDD + nouvellesActions;
+
+  // Ce qui figure dans "actions cédées" = nouvelles seulement (ou BDD si pas de CLI)
+  const actionsCedees = ACTIONS_FORCEES !== null ? nouvellesActions : actionsEnBDD;
+
   const capitalTotal = 1000000;
-  const pourcentage  = ((nbreActions / capitalTotal) * 100).toFixed(5);
+  const pourcentage  = ((totalActionsApres / capitalTotal) * 100).toFixed(5);
 
   console.log(`\n✅ Actionnaire trouvé :`);
-  console.log(`   Nom        : ${user.firstName} ${user.lastName}`);
-  console.log(`   Téléphone  : ${user.telephone}`);
-  console.log(`   Actions    : ${fmt(nbreActions)}`);
-  console.log(`   Pourcentage: ${pourcentage}% du capital`);
-  console.log(`   Dividendes : ${fmt(user.dividende || 0)} FCFA\n`);
+  console.log(`   Nom           : ${user.firstName} ${user.lastName}`);
+  console.log(`   Téléphone     : ${user.telephone}`);
+  console.log(`   Actions en BDD: ${fmt(actionsEnBDD)}`);
+  console.log(`   Nouvelles     : ${fmt(nouvellesActions)}${ACTIONS_FORCEES !== null ? ' (CLI)' : ''}`);
+  console.log(`   Total contrat : ${fmt(totalActionsApres)} actions`);
+  console.log(`   Pourcentage   : ${pourcentage}% du capital`);
+  console.log(`   Prix/action   : ${fmt(PRIX_PAR_ACTION)} FCFA\n`);
 
   // ── Données pour le contrat ──
-  const prixParAction = 10000;
-  const montantTotal  = nbreActions * prixParAction;
+  const prixParAction = PRIX_PAR_ACTION;
+  const montantTotal  = actionsCedees * prixParAction;
 
   const purchaseData = {
     _id:             user._id,
-    nombre_actions:  nbreActions,
-    nbre_actions:    nbreActions,
+    nombre_actions:  actionsCedees,       // actions cédées dans ce contrat
+    nbre_actions:    actionsCedees,
     prix_unitaire:   prixParAction,
     price_per_share: prixParAction,
     montant_total:   montantTotal,
@@ -116,9 +132,12 @@ async function main() {
     createdAt:       user.createdAt || new Date(),
   };
 
+  // On passe un user enrichi avec le total mis à jour
+  const userPourContrat = { ...user, nbre_actions: totalActionsApres, nombre_actions: totalActionsApres };
+
   // ── Générer le PDF ──
   console.log('📄 Génération du contrat PDF...');
-  const pdfBuffer = await generateContractPDF(purchaseData, user);
+  const pdfBuffer = await generateContractPDF(purchaseData, userPourContrat);
   console.log(`   ✅ PDF généré (${Math.round(pdfBuffer.length / 1024)} Ko)`);
 
   // ── Upload S3 ──
@@ -134,7 +153,7 @@ async function main() {
     ``,
     `Veuillez trouver ci-joint votre contrat de cession d'actions Dioko Group SAS.`,
     ``,
-    `📊 Vous détenez actuellement *${fmt(nbreActions)} actions*, soit *${pourcentage}%* du capital social.`,
+    `📊 Vous détenez actuellement *${fmt(totalActionsApres)} actions*, soit *${pourcentage}%* du capital social.`,
     `💰 Dividendes disponibles : *${fmt(user.dividende || 0)} FCFA*`,
     ``,
     `Merci pour votre confiance — Équipe Dioko`,

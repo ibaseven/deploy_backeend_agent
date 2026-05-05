@@ -49,7 +49,7 @@ const { verifyOTPForPartner, resendOTPForPartner } = require('../Controller/otpC
 const { buydividendeswithoseruser, getTransactionsForTest, updateTransactionStatusForTest, getAllDividendesbuywithOtherUser } = require('../Controller/ActionsSaleUser');
 const { getAllPrices, getPriceByType, upsertPrice, deletePrice, getAllVIPUsers, addVIPUser, removeVIPUser, checkVIPStatus } = require('../Controller/priceController');
 const { getAllAuthorizedSellers, addAuthorizedSeller, removeAuthorizedSeller, toggleAuthorizedSeller } = require('../Controller/authorizedSellerController');
-const { initiateInstallmentPurchase, addInstallmentPayment, getMyInstallmentPurchases, getMyInstallmentHistory, annulerContratVersement } = require('../Controller/installmentPurchaseController');
+const { initiateInstallmentPurchase, addInstallmentPayment, getMyInstallmentPurchases, getMyInstallmentHistory, annulerContratVersement, creerMoratoireAdmin, versementManuelAdmin, getListeMoratoiresAdmin } = require('../Controller/installmentPurchaseController');
 const { requestCryptoWithdrawal, getMyCryptoWithdrawals, getAllCryptoWithdrawals, acceptCryptoWithdrawal, rejectCryptoWithdrawal } = require('../Controller/cryptoWithdrawalController');
 const { getAvailablePacks, initiatePackPurchaseCFA, handlePackPaydunyaCallback, checkPackPaymentStatus, initiatePackPurchaseCrypto, getMyPackPurchases, getAllPackPurchases, validatePackPurchase, rejectPackPurchase } = require('../Controller/packPurchaseController');
 
@@ -114,6 +114,10 @@ router.post('/actions/versements/payer', authenticateToken.authenticate, addInst
 router.get('/actions/versements/mes-achats', authenticateToken.authenticate, getMyInstallmentPurchases);
 router.get('/actions/versements/historique', authenticateToken.authenticate, getMyInstallmentHistory);
 router.delete('/actions/versements/:contractId', authenticateToken.authenticate, annulerContratVersement);
+// Admin moratoires
+router.post('/admin/versements/creer',               authenticateToken.authenticate, authenticateToken.requireAdmin, creerMoratoireAdmin);
+router.post('/admin/versements/:id/versement-manuel', authenticateToken.authenticate, authenticateToken.requireAdmin, versementManuelAdmin);
+router.get('/admin/versements/liste',                authenticateToken.authenticate, authenticateToken.requireAdmin, getListeMoratoiresAdmin);
 
 // ===============================================
 // 💰 ROUTES ACHAT AVEC DIVIDENDES
